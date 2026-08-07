@@ -1,26 +1,150 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Design system. shadcn/ui-compatible CSS variables mapped into the Tailwind v4
+ * theme (05-architecture §A3). Palette: an indigo primary on cool slate-tinted
+ * neutrals, with a layered surface model (app < sidebar/card < popover) and a
+ * soft elevation scale — the modern-SaaS look, not flat-gray legacy ERP.
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-xs: 0 1px 2px 0 oklch(0.2 0.03 265 / 0.04);
+  --shadow-sm: 0 1px 3px 0 oklch(0.2 0.03 265 / 0.06),
+    0 1px 2px -1px oklch(0.2 0.03 265 / 0.05);
+  --shadow-md: 0 4px 12px -2px oklch(0.2 0.03 265 / 0.08),
+    0 2px 6px -2px oklch(0.2 0.03 265 / 0.05);
+  --shadow-lg: 0 12px 28px -6px oklch(0.2 0.03 265 / 0.12),
+    0 4px 10px -4px oklch(0.2 0.03 265 / 0.06);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  --radius: 0.7rem;
+
+  /* Surfaces: a faintly cool page, pure-white cards for lift */
+  --background: oklch(0.984 0.003 264);
+  --foreground: oklch(0.23 0.02 266);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.23 0.02 266);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.23 0.02 266);
+
+  /* Indigo primary */
+  --primary: oklch(0.53 0.19 268);
+  --primary-foreground: oklch(0.99 0.005 264);
+
+  --secondary: oklch(0.968 0.004 264);
+  --secondary-foreground: oklch(0.3 0.02 266);
+  --muted: oklch(0.968 0.004 264);
+  --muted-foreground: oklch(0.54 0.02 266);
+  --accent: oklch(0.955 0.018 268);
+  --accent-foreground: oklch(0.4 0.13 268);
+
+  --destructive: oklch(0.585 0.21 25);
+  --destructive-foreground: oklch(0.99 0.005 264);
+  --success: oklch(0.62 0.14 155);
+  --success-foreground: oklch(0.99 0.005 264);
+  --warning: oklch(0.76 0.15 70);
+  --warning-foreground: oklch(0.3 0.05 70);
+
+  --border: oklch(0.923 0.005 264);
+  --input: oklch(0.923 0.005 264);
+  --ring: oklch(0.53 0.19 268);
+
+  /* Sidebar sits between page and card */
+  --sidebar: oklch(0.992 0.002 264);
+  --sidebar-foreground: oklch(0.23 0.02 266);
+  --sidebar-accent: oklch(0.952 0.02 268);
+  --sidebar-accent-foreground: oklch(0.42 0.15 268);
+  --sidebar-border: oklch(0.922 0.005 264);
+}
+
+.dark {
+  /* Deep desaturated indigo-slate, layered lighter as you go up */
+  --background: oklch(0.18 0.015 266);
+  --foreground: oklch(0.96 0.004 264);
+  --card: oklch(0.216 0.017 266);
+  --card-foreground: oklch(0.96 0.004 264);
+  --popover: oklch(0.24 0.018 266);
+  --popover-foreground: oklch(0.96 0.004 264);
+
+  --primary: oklch(0.66 0.16 266);
+  --primary-foreground: oklch(0.16 0.02 266);
+
+  --secondary: oklch(0.27 0.018 266);
+  --secondary-foreground: oklch(0.96 0.004 264);
+  --muted: oklch(0.27 0.018 266);
+  --muted-foreground: oklch(0.7 0.02 266);
+  --accent: oklch(0.3 0.04 266);
+  --accent-foreground: oklch(0.85 0.08 266);
+
+  --destructive: oklch(0.68 0.19 25);
+  --destructive-foreground: oklch(0.98 0.005 264);
+  --success: oklch(0.7 0.14 155);
+  --success-foreground: oklch(0.16 0.02 266);
+  --warning: oklch(0.8 0.15 70);
+  --warning-foreground: oklch(0.2 0.03 70);
+
+  --border: oklch(1 0 0 / 0.09);
+  --input: oklch(1 0 0 / 0.12);
+  --ring: oklch(0.66 0.16 266);
+
+  --sidebar: oklch(0.2 0.016 266);
+  --sidebar-foreground: oklch(0.96 0.004 264);
+  --sidebar-accent: oklch(0.31 0.04 266);
+  --sidebar-accent-foreground: oklch(0.88 0.08 266);
+  --sidebar-border: oklch(1 0 0 / 0.08);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Tighter, more deliberate headings */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.015em;
+  }
 }
