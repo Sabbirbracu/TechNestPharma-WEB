@@ -8,6 +8,7 @@ import { useDebounced } from "@/lib/use-debounced";
 import { ProductResultCard } from "@/components/search/product-result-card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { SearchStrategy } from "@/types/api";
 
 /**
@@ -38,33 +39,33 @@ export default function SearchPage() {
         description="Find products, suppliers, and contacts instantly across the entire catalogue."
       />
 
-      {/* Premium search input */}
+      {/* Premium search input - Mobile Optimized */}
       <div className="mx-auto max-w-3xl">
         <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground sm:left-4 sm:size-5" />
           <Input
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by product name, CAS number, or synonym..."
-            className="h-14 pl-12 pr-12 text-base shadow-lg ring-1 ring-border/50"
+            placeholder="Search by product name, CAS number..."
+            className="h-12 pl-10 pr-10 text-sm shadow-lg ring-1 ring-border/50 sm:h-14 sm:pl-12 sm:pr-12 sm:text-base"
             aria-label="Search products"
           />
           {isFetching && (
-            <Loader2 className="absolute right-4 top-1/2 size-5 -translate-y-1/2 animate-spin text-primary" />
+            <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-primary sm:right-4 sm:size-5" />
           )}
         </div>
         
-        {/* Search info banner */}
+        {/* Search info banner - Mobile Optimized */}
         {hasQuery && data && data.strategy !== "empty" && data.total > 0 && (
-          <div className="mt-4 flex items-center justify-between rounded-xl border border-success/20 bg-success/5 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-success" />
-              <p className="text-sm font-semibold text-success">
+          <div className="mt-3 flex items-center justify-between rounded-xl border border-success/20 bg-success/5 px-3 py-2 sm:mt-4 sm:px-4 sm:py-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Sparkles className="size-3.5 text-success sm:size-4" />
+              <p className="text-xs font-semibold text-success sm:text-sm">
                 {STRATEGY_LABEL[data.strategy]}
               </p>
             </div>
-            <Badge variant="success" className="font-bold tabular-nums">
+            <Badge variant="success" className="text-xs font-bold tabular-nums sm:text-sm">
               {data.total} result{data.total === 1 ? "" : "s"}
             </Badge>
           </div>
@@ -92,20 +93,66 @@ export default function SearchPage() {
       {/* Start hint */}
       {!hasQuery && <StartHint />}
 
+      {/* Loading: the very first search, before any data has ever landed —
+          after that, keepPreviousData means `data` is never undefined again,
+          so this only shows once per page load. */}
+      {hasQuery && isFetching && !data && <SearchLoading />}
+
       {/* Empty result */}
       {hasQuery && data && data.total === 0 && !isFetching && (
         <EmptyResult query={data.query} />
       )}
 
-      {/* Results */}
+      {/* Results — dimmed with an overlay spinner while a *new* query is in
+          flight, rather than being replaced outright, so re-searching doesn't
+          flash the screen back to empty between keystrokes. */}
       {hasQuery && data && data.total > 0 && (
-        <div className="mx-auto mt-8 max-w-4xl space-y-5">
-          {data.products.map((product) => (
-            <ProductResultCard key={product.id} product={product} />
-          ))}
+        <div className="relative mx-auto mt-8 max-w-4xl">
+          {isFetching && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="absolute inset-x-0 -top-3 z-10 flex justify-center"
+            >
+              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-muted-foreground shadow-md">
+                <Loader2 className="size-3.5 animate-spin text-primary" />
+                Updating results…
+              </span>
+            </div>
+          )}
+          <div
+            className={cn(
+              "space-y-5 transition-opacity duration-200",
+              isFetching && "pointer-events-none opacity-50",
+            )}
+          >
+            {data.products.map((product) => (
+              <ProductResultCard key={product.id} product={product} />
+            ))}
+          </div>
         </div>
       )}
     </>
+  );
+}
+
+/** Shown only for the very first search of the session — a centred spinner
+ *  rather than the input's small corner one, since there is nothing else on
+ *  screen yet to anchor to. */
+function SearchLoading() {
+  return (
+    <div className="mx-auto mt-12 max-w-3xl">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-[240px] flex-col items-center justify-center gap-4 rounded-2xl border border-border/60 bg-secondary/30 p-12 text-center"
+      >
+        <Loader2 className="size-8 animate-spin text-primary" strokeWidth={2} />
+        <p className="text-sm font-semibold text-muted-foreground">
+          Searching the catalogue…
+        </p>
+      </div>
+    </div>
   );
 }
 

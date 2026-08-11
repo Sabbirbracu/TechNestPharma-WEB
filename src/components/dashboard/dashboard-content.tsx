@@ -67,16 +67,16 @@ export function DashboardContent() {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Quick Stats Section */}
+    <div className="space-y-6 sm:space-y-8">
+      {/* Quick Stats Section - Mobile Optimized */}
       <section>
-        <div className="mb-4 flex items-center gap-2">
-          <TrendingUp className="size-5 text-primary" strokeWidth={2} />
-          <h2 className="text-lg font-bold tracking-tight text-foreground">
+        <div className="mb-3 flex items-center gap-2 sm:mb-4">
+          <TrendingUp className="size-4 text-primary sm:size-5" strokeWidth={2} />
+          <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
             Quick Statistics
           </h2>
         </div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
           {TILES.map(({ key, label, icon, variant }) => (
             <StatCard
               key={key}
@@ -91,15 +91,15 @@ export function DashboardContent() {
         </div>
       </section>
 
-      {/* Analytics Section */}
+      {/* Analytics Section - Mobile Optimized */}
       <section>
-        <div className="mb-4 flex items-center gap-2">
-          <Globe className="size-5 text-success" strokeWidth={2} />
-          <h2 className="text-lg font-bold tracking-tight text-foreground">
+        <div className="mb-3 flex items-center gap-2 sm:mb-4">
+          <Globe className="size-4 text-success sm:size-5" strokeWidth={2} />
+          <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
             Analytics Overview
           </h2>
         </div>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
           <BreakdownCard
             title="Offers by Material Type"
             description="Distribution of products across material categories"

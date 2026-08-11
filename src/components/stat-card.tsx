@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
  * Premium dashboard count tile with sophisticated hover effects and
  * refined visual hierarchy (FR-DASH-01/02).
  * Supports color variants for visual interest.
+ * Mobile-optimized with responsive sizing.
  */
 export function StatCard({
   label,
@@ -40,7 +41,7 @@ export function StatCard({
   return (
     <Card
       className={cn(
-        "group relative overflow-hidden p-6 transition-all duration-300",
+        "group relative overflow-hidden p-4 transition-all duration-300 sm:p-6",
         "hover:-translate-y-1 hover:shadow-lg",
         "border-border/60 bg-gradient-to-br from-card to-card/95",
         className,
@@ -59,24 +60,24 @@ export function StatCard({
       )} />
       
       <div className="relative">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <span className="text-sm font-medium text-muted-foreground leading-snug">
+        <div className="flex items-start justify-between gap-2 mb-3 sm:gap-3 sm:mb-4">
+          <span className="text-xs font-medium text-muted-foreground leading-snug sm:text-sm">
             {label}
           </span>
           <span className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset transition-all duration-300 group-hover:scale-110",
+            "flex size-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset transition-all duration-300 group-hover:scale-110 sm:size-10 sm:rounded-xl",
             colorClasses.iconBg
           )}>
-            <Icon className="size-5" strokeWidth={2} />
+            <Icon className="size-4 sm:size-5" strokeWidth={2} />
           </span>
         </div>
         
-        <div className="text-3xl font-bold tracking-tight tabular-nums text-foreground mb-1">
+        <div className="text-2xl font-bold tracking-tight tabular-nums text-foreground mb-1 sm:text-3xl">
           {value}
         </div>
         
         {hint && (
-          <p className="text-xs font-medium text-muted-foreground/80 leading-relaxed">
+          <p className="text-[11px] font-medium text-muted-foreground/80 leading-relaxed sm:text-xs">
             {hint}
           </p>
         )}
