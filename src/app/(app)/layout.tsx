@@ -1,6 +1,11 @@
 import { type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { RequireAuth } from "@/components/require-auth";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <RequireAuth>
+      <AppShell>{children}</AppShell>
+    </RequireAuth>
+  );
 }

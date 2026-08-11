@@ -15,11 +15,12 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Pharma Sourcing ERP",
-    template: "%s · Pharma Sourcing ERP",
+    default: "TechNest Pharma",
+    template: "%s · TechNest Pharma",
   },
   description:
-    "Searchable catalogue of pharmaceutical raw-material suppliers, products, and offers.",
+    "Smart sourcing. Stronger healthcare. Searchable catalogue of pharmaceutical raw-material suppliers, products, and offers.",
+  icons: { icon: "/logo-mark.png", apple: "/logo-mark.png" },
 };
 
 export default function RootLayout({

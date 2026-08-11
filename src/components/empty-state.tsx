@@ -18,17 +18,21 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[340px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
-      <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-accent text-accent-foreground ring-1 ring-inset ring-border">
+    <div className="relative flex min-h-[340px] flex-col items-center justify-center overflow-hidden rounded-xl border border-border bg-secondary/30 p-12 text-center">
+      <div
+        className="bg-dot-grid pointer-events-none absolute inset-0 [-webkit-mask-image:radial-gradient(ellipse_at_center,black_0%,transparent_75%)] [mask-image:radial-gradient(ellipse_at_center,black_0%,transparent_75%)]"
+        aria-hidden
+      />
+      <div className="relative mb-4 flex size-14 items-center justify-center rounded-2xl bg-card text-primary shadow-sm ring-1 ring-inset ring-border">
         <Icon className="size-6" />
       </div>
-      <h2 className="text-lg font-medium">{title}</h2>
+      <h2 className="relative text-lg font-medium tracking-tight">{title}</h2>
       {description && (
-        <p className="mt-1 max-w-md text-sm text-muted-foreground">
+        <p className="relative mt-1 max-w-md text-sm text-muted-foreground">
           {description}
         </p>
       )}
-      {children && <div className="mt-6">{children}</div>}
+      {children && <div className="relative mt-6">{children}</div>}
     </div>
   );
 }

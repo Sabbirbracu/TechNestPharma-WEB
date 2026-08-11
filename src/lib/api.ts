@@ -32,16 +32,32 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Called when a request comes back 401 so the session can be renewed from the
+ * refresh cookie. Registered by the auth provider to avoid a circular import;
+ * it must de-duplicate concurrent calls, because the backend rotates refresh
+ * tokens and treats a replayed one as theft (05-architecture §A4).
+ */
+type RefreshHandler = () => Promise<boolean>;
+
+let refreshHandler: RefreshHandler | null = null;
+
+export function setRefreshHandler(handler: RefreshHandler | null) {
+  refreshHandler = handler;
+}
+
 type RequestOptions = Omit<RequestInit, "body"> & {
   /** JSON-serialisable body; set automatically with the right content-type. */
   json?: unknown;
   /** Skip attaching the in-memory access token (e.g. the login call). */
   anonymous?: boolean;
+  /** Internal: set once a 401 has already triggered a refresh-and-retry. */
+  retried?: boolean;
 };
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { json, anonymous, headers, ...init }: RequestOptions = {},
+  { json, anonymous, retried, headers, ...init }: RequestOptions = {},
 ): Promise<T> {
   const finalHeaders = new Headers(headers);
   if (json !== undefined) {
@@ -57,6 +73,19 @@ export async function apiFetch<T = unknown>(
     credentials: "include",
     body: json !== undefined ? JSON.stringify(json) : undefined,
   });
+
+  // The access token lives ~15 minutes; on expiry renew it once and replay.
+  if (res.status === 401 && !anonymous && !retried && refreshHandler) {
+    const renewed = await refreshHandler();
+    if (renewed) {
+      return apiFetch<T>(path, {
+        ...init,
+        json,
+        headers,
+        retried: true,
+      });
+    }
+  }
 
   if (res.status === 204) {
     return undefined as T;

@@ -2,9 +2,12 @@
 
 /*
  * Design system. shadcn/ui-compatible CSS variables mapped into the Tailwind v4
- * theme (05-architecture §A3). Palette: an indigo primary on cool slate-tinted
- * neutrals, with a layered surface model (app < sidebar/card < popover) and a
- * soft elevation scale — the modern-SaaS look, not flat-gray legacy ERP.
+ * theme (05-architecture §A3).
+ *
+ * Palette is taken from the TechNest Pharma logo: deep navy #003B78 as the
+ * primary, brand green #158B45 as the affirmative/secondary accent, on crisp
+ * near-white surfaces with hairline borders and matte shadows. Precision over
+ * decoration: regulatory-grade software, not a generic startup dashboard.
  */
 
 @theme inline {
@@ -16,6 +19,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -36,6 +40,7 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-active: var(--sidebar-active);
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -45,91 +50,112 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --shadow-xs: 0 1px 2px 0 oklch(0.2 0.03 265 / 0.04);
-  --shadow-sm: 0 1px 3px 0 oklch(0.2 0.03 265 / 0.06),
-    0 1px 2px -1px oklch(0.2 0.03 265 / 0.05);
-  --shadow-md: 0 4px 12px -2px oklch(0.2 0.03 265 / 0.08),
-    0 2px 6px -2px oklch(0.2 0.03 265 / 0.05);
-  --shadow-lg: 0 12px 28px -6px oklch(0.2 0.03 265 / 0.12),
-    0 4px 10px -4px oklch(0.2 0.03 265 / 0.06);
+  /* Premium shadow system - refined for enterprise software */
+  --shadow-xs: 0 1px 2px 0 oklch(0.2 0.03 255 / 0.05);
+  --shadow-sm: 0 1px 3px 0 oklch(0.2 0.03 255 / 0.08),
+    0 1px 2px -1px oklch(0.2 0.03 255 / 0.06);
+  --shadow-md: 0 4px 12px -2px oklch(0.2 0.05 255 / 0.12),
+    0 2px 6px -2px oklch(0.2 0.05 255 / 0.08);
+  --shadow-lg: 0 12px 28px -6px oklch(0.2 0.06 255 / 0.16),
+    0 4px 10px -4px oklch(0.2 0.05 255 / 0.10);
+  --shadow-xl: 0 20px 40px -8px oklch(0.2 0.06 255 / 0.20),
+    0 8px 16px -6px oklch(0.2 0.05 255 / 0.12);
 }
 
 :root {
-  --radius: 0.7rem;
+  --radius: 0.75rem; /* Slightly larger for premium feel */
 
-  /* Surfaces: a faintly cool page, pure-white cards for lift */
-  --background: oklch(0.984 0.003 264);
-  --foreground: oklch(0.23 0.02 266);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.23 0.02 266);
+  /* Brand colors from logo - #00548C (Tech/Pharma blue) and #2D995B (Nest green) */
+  --brand-navy: oklch(0.358 0.118 255); /* #003B78 - primary blue */
+  --brand-green: oklch(0.62 0.15 150); /* #2D995B - brighter success green from logo */
+
+  /* Premium surfaces: soft cool-white background with elevated pure-white cards */
+  --background: oklch(0.985 0.004 250); /* Softer, more refined background */
+  --foreground: oklch(0.18 0.028 255); /* Deeper text for better readability */
+  --card: oklch(1 0 0); /* Pure white cards for premium elevation */
+  --card-foreground: oklch(0.18 0.028 255);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.23 0.02 266);
+  --popover-foreground: oklch(0.18 0.028 255);
 
-  /* Indigo primary */
-  --primary: oklch(0.53 0.19 268);
-  --primary-foreground: oklch(0.99 0.005 264);
+  /* Primary: Deep professional navy (#003B78 / #00548C) */
+  --primary: oklch(0.358 0.118 255);
+  --primary-hover: oklch(0.32 0.12 255); /* Richer hover state */
+  --primary-foreground: oklch(0.99 0.005 250);
 
-  --secondary: oklch(0.968 0.004 264);
-  --secondary-foreground: oklch(0.3 0.02 266);
-  --muted: oklch(0.968 0.004 264);
-  --muted-foreground: oklch(0.54 0.02 266);
-  --accent: oklch(0.955 0.018 268);
-  --accent-foreground: oklch(0.4 0.13 268);
+  /* Secondary and muted: refined neutrals */
+  --secondary: oklch(0.96 0.008 250);
+  --secondary-foreground: oklch(0.28 0.04 255);
+  --muted: oklch(0.96 0.008 250);
+  --muted-foreground: oklch(0.48 0.028 255); /* Better contrast for accessibility */
+  
+  /* Accent: subtle blue tint for interactive states */
+  --accent: oklch(0.93 0.035 255);
+  --accent-foreground: oklch(0.30 0.12 255);
 
-  --destructive: oklch(0.585 0.21 25);
-  --destructive-foreground: oklch(0.99 0.005 264);
-  --success: oklch(0.62 0.14 155);
-  --success-foreground: oklch(0.99 0.005 264);
-  --warning: oklch(0.76 0.15 70);
-  --warning-foreground: oklch(0.3 0.05 70);
+  /* Semantic colors - professional and clear */
+  --destructive: oklch(0.55 0.22 26); /* More saturated red */
+  --destructive-foreground: oklch(0.99 0.005 250);
+  --success: oklch(0.62 0.15 150); /* Brighter brand green from logo #2D995B */
+  --success-foreground: oklch(0.99 0.005 250);
+  --warning: oklch(0.74 0.16 75); /* Richer amber */
+  --warning-foreground: oklch(0.25 0.06 75);
 
-  --border: oklch(0.923 0.005 264);
-  --input: oklch(0.923 0.005 264);
-  --ring: oklch(0.53 0.19 268);
+  /* Borders and inputs: delicate but visible */
+  --border: oklch(0.895 0.01 250);
+  --input: oklch(0.895 0.01 250);
+  --ring: oklch(0.358 0.118 255); /* Primary blue for focus rings */
 
-  /* Sidebar sits between page and card */
-  --sidebar: oklch(0.992 0.002 264);
-  --sidebar-foreground: oklch(0.23 0.02 266);
-  --sidebar-accent: oklch(0.952 0.02 268);
-  --sidebar-accent-foreground: oklch(0.42 0.15 268);
-  --sidebar-border: oklch(0.922 0.005 264);
+  /* Sidebar: Deep navy blue background (matching logo dark variant) for premium contrast */
+  --sidebar: oklch(0.22 0.045 255); /* Deep navy blue #001f3f / #0a1929 */
+  --sidebar-foreground: oklch(0.95 0.005 250); /* Light text for contrast */
+  --sidebar-accent: oklch(0.28 0.050 255); /* Slightly lighter navy for hover */
+  --sidebar-accent-foreground: oklch(0.98 0.005 250); /* White text */
+  --sidebar-border: oklch(0.26 0.048 255); /* Subtle border */
+  /* Selected nav item — sampled directly from the green in
+     public/logo-mark-dark.png (the logo's dark-background variant), not
+     approximated from the light-surface brand green (#158B45/#2D995B),
+     which reads visibly different against the navy sidebar. */
+  --sidebar-active: oklch(0.708 0.164 134);
 }
 
 .dark {
-  /* Deep desaturated indigo-slate, layered lighter as you go up */
-  --background: oklch(0.18 0.015 266);
-  --foreground: oklch(0.96 0.004 264);
-  --card: oklch(0.216 0.017 266);
-  --card-foreground: oklch(0.96 0.004 264);
-  --popover: oklch(0.24 0.018 266);
-  --popover-foreground: oklch(0.96 0.004 264);
+  /* Deep navy-charcoal, layered lighter as you go up. Primary lifts well above
+     the brand navy — #003B78 is far too dark to read on a dark surface. */
+  --background: oklch(0.165 0.018 255);
+  --foreground: oklch(0.96 0.005 250);
+  --card: oklch(0.202 0.021 255);
+  --card-foreground: oklch(0.96 0.005 250);
+  --popover: oklch(0.228 0.022 255);
+  --popover-foreground: oklch(0.96 0.005 250);
 
-  --primary: oklch(0.66 0.16 266);
-  --primary-foreground: oklch(0.16 0.02 266);
+  --primary: oklch(0.66 0.14 253);
+  --primary-hover: oklch(0.71 0.14 253);
+  --primary-foreground: oklch(0.15 0.025 255);
 
-  --secondary: oklch(0.27 0.018 266);
-  --secondary-foreground: oklch(0.96 0.004 264);
-  --muted: oklch(0.27 0.018 266);
-  --muted-foreground: oklch(0.7 0.02 266);
-  --accent: oklch(0.3 0.04 266);
-  --accent-foreground: oklch(0.85 0.08 266);
+  --secondary: oklch(0.265 0.023 255);
+  --secondary-foreground: oklch(0.96 0.005 250);
+  --muted: oklch(0.265 0.023 255);
+  --muted-foreground: oklch(0.68 0.025 253);
+  --accent: oklch(0.3 0.05 255);
+  --accent-foreground: oklch(0.85 0.1 253);
 
-  --destructive: oklch(0.68 0.19 25);
-  --destructive-foreground: oklch(0.98 0.005 264);
-  --success: oklch(0.7 0.14 155);
-  --success-foreground: oklch(0.16 0.02 266);
-  --warning: oklch(0.8 0.15 70);
-  --warning-foreground: oklch(0.2 0.03 70);
+  --destructive: oklch(0.68 0.19 26);
+  --destructive-foreground: oklch(0.98 0.005 250);
+  --success: oklch(0.65 0.16 150); /* Lifted brighter green for dark mode */
+  --success-foreground: oklch(0.15 0.025 255);
+  --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.2 0.03 75);
 
   --border: oklch(1 0 0 / 0.09);
   --input: oklch(1 0 0 / 0.12);
-  --ring: oklch(0.66 0.16 266);
+  --ring: oklch(0.66 0.14 253);
 
-  --sidebar: oklch(0.2 0.016 266);
-  --sidebar-foreground: oklch(0.96 0.004 264);
-  --sidebar-accent: oklch(0.31 0.04 266);
-  --sidebar-accent-foreground: oklch(0.88 0.08 266);
+  --sidebar: oklch(0.185 0.019 255);
+  --sidebar-foreground: oklch(0.96 0.005 250);
+  --sidebar-accent: oklch(0.31 0.055 255);
+  --sidebar-accent-foreground: oklch(0.87 0.1 253);
   --sidebar-border: oklch(1 0 0 / 0.08);
+  --sidebar-active: oklch(0.708 0.164 134); /* same logo green, both themes */
 }
 
 @layer base {
@@ -140,11 +166,66 @@
     font-family: var(--font-sans), system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
   }
   /* Tighter, more deliberate headings */
   h1,
   h2,
   h3 {
-    letter-spacing: -0.015em;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  /* Faint dot-grid for large surfaces (login hero, empty dashboards) */
+  .bg-dot-grid {
+    background-image: radial-gradient(
+      color-mix(in oklch, var(--foreground) 12%, transparent) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
+  }
+
+  /* Premium gradient overlays */
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  }
+
+  .bg-gradient-success {
+    background: linear-gradient(135deg, var(--success) 0%, oklch(0.52 0.15 151) 100%);
+  }
+
+  /* Glass morphism effect for premium UI elements */
+  .glass {
+    background: oklch(1 0 0 / 0.7);
+    backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid oklch(1 0 0 / 0.18);
+  }
+
+  .glass-dark {
+    background: oklch(0.2 0.02 255 / 0.6);
+    backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid oklch(1 0 0 / 0.1);
+  }
+
+  /* Subtle shimmer animation for loading states */
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      oklch(1 0 0 / 0.1) 50%,
+      transparent 100%
+    );
+    background-size: 1000px 100%;
   }
 }

@@ -1,46 +1,59 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Pill } from "lucide-react";
+import { LogOut, Loader2 } from "lucide-react";
+import { BrandLockup } from "@/components/brand";
 import { NAV_SECTIONS } from "@/config/nav";
+import { useAuth, initialsOf } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
+/** Sentence-case the role enum for display: "owner" → "Owner". */
+const ROLE_LABEL: Record<string, string> = {
+  owner: "Full access",
+  staff: "Staff",
+  viewer: "Read only",
+};
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
-    <nav aria-label="Primary" className="flex h-full flex-col">
-      {/* Brand */}
+    <nav aria-label="Primary" className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+      {/* Brand with premium spacing - logo inverted for dark background */}
       <Link
         href="/dashboard"
         onClick={onNavigate}
-        className="flex items-center gap-2.5 px-5 py-4"
+        className="border-b border-sidebar-border/50 px-6 py-6 transition-opacity hover:opacity-90"
+        aria-label="TechNest Pharma — go to dashboard"
       >
-        <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-          <Pill className="size-5" />
-        </span>
-        <span className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold tracking-tight">
-            Pharma Sourcing
-          </span>
-          <span className="text-[11px] font-medium text-muted-foreground">
-            ERP · V1
-          </span>
-        </span>
+        <BrandLockup inverted />
       </Link>
 
-      <div className="flex-1 space-y-6 overflow-y-auto px-3 py-2">
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.label} className="space-y-1">
-            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+      <div className="flex-1 space-y-7 overflow-y-auto px-4 py-3">
+        {NAV_SECTIONS.map((section, sectionIndex) => (
+          <div key={section.label} className="space-y-1.5">
+            <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
               {section.label}
             </p>
-            {section.items.map((item) => {
+            {section.items.map((item, itemIndex) => {
               const active =
                 pathname === item.href ||
                 pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
+              
               return (
                 <Link
                   key={item.href}
@@ -48,22 +61,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all",
+                    "group relative flex items-center gap-3.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold tracking-tight transition-all duration-200",
                     active
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                      ? "bg-white/10 text-white shadow-md backdrop-blur-sm"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                   )}
                 >
                   {active && (
-                    <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
+                    <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-white shadow-lg shadow-white/30" />
                   )}
                   <Icon
                     className={cn(
-                      "size-4 shrink-0 transition-colors",
+                      "size-[18px] shrink-0 transition-all duration-200",
                       active
-                        ? "text-primary"
-                        : "text-muted-foreground group-hover:text-foreground",
+                        ? "text-white scale-110"
+                        : "text-sidebar-foreground/70 group-hover:text-sidebar-foreground group-hover:scale-105",
                     )}
+                    strokeWidth={active ? 2.5 : 2}
                   />
                   {item.label}
                 </Link>
@@ -73,18 +87,34 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </div>
 
-      {/* Footer / user */}
-      <div className="border-t border-sidebar-border p-3">
-        <div className="flex items-center gap-3 rounded-md px-2 py-2">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-            O
+      {/* Premium footer with enhanced user profile - green accent on dark navy */}
+      <div className="border-t border-sidebar-border/50 bg-sidebar/95 p-4">
+        <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/70 px-3 py-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-success via-success to-success/90 text-xs font-bold text-success-foreground shadow-lg shadow-success/20">
+            {initialsOf(user)}
           </div>
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-medium">Owner</p>
-            <p className="truncate text-xs text-muted-foreground">
-              Full access
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-sm font-semibold text-sidebar-foreground">
+              {user?.full_name ?? "—"}
+            </p>
+            <p className="truncate text-xs font-medium text-sidebar-foreground/60">
+              {user ? (ROLE_LABEL[user.role] ?? user.role) : ""}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={signingOut}
+            aria-label="Sign out"
+            title="Sign out"
+            className="ml-auto shrink-0 rounded-lg p-2 text-sidebar-foreground/60 transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground hover:scale-105 disabled:opacity-50"
+          >
+            {signingOut ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <LogOut className="size-4" />
+            )}
+          </button>
         </div>
       </div>
     </nav>

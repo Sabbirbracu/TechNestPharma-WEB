@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { FlaskConical, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
+import { ProductsTable } from "@/components/products/products-table";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Products" };
@@ -11,7 +11,7 @@ export default function ProductsPage() {
     <>
       <PageHeader
         title="Products"
-        description="Substances by canonical name, CAS, synonyms, and variant."
+        description="Substances in the catalogue, keyed by name, variant, and CAS number."
       >
         <Button>
           <Plus />
@@ -19,11 +19,7 @@ export default function ProductsPage() {
         </Button>
       </PageHeader>
 
-      <EmptyState
-        icon={FlaskConical}
-        title="No products yet"
-        description="CAS identifies a substance, not a sellable product — the same CAS can appear many times, distinguished by variant."
-      />
+      <ProductsTable />
     </>
   );
 }

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ApiError } from "@/lib/api";
+import { AuthProvider } from "@/lib/auth";
 
 /**
  * Client-side providers. TanStack Query owns the read cache and optimistic
@@ -27,7 +28,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <AuthProvider>{children}</AuthProvider>
       {process.env.NODE_ENV === "development" && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}
