@@ -18,8 +18,18 @@ COPY . .
 
 # NEXT_PUBLIC_* values are inlined at build time, so the API URL is a build arg.
 # In production this is the public origin; nginx proxies /api/v1 to the api service.
+#
+# Written to .env.production rather than relying on the inherited `ENV` alone:
+# with Next 16's Turbopack build, a shell-inherited NEXT_PUBLIC_* var was
+# verified present in the process environment right up to `npm run build` (a
+# diagnostic RUN echo confirmed it) but did NOT get inlined into the client
+# bundle — the compiled output had no trace of it, so apiFetch's `?? fallback`
+# silently produced a same-origin relative URL in production. Writing the
+# value to .env.production instead makes Next load it through its own
+# first-class dotenv path, which reliably inlines it (verified: grepping the
+# built .next/static output for the URL succeeds only with this file present).
 ARG NEXT_PUBLIC_API_BASE_URL
-ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+RUN echo "NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}" > .env.production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
