@@ -44,6 +44,25 @@ export type CompanyListItem = {
   country: CountryRef | null;
 };
 
+/** A contact as embedded on the company detail page, channels included. */
+export type CompanyContact = {
+  id: number;
+  name_en: string;
+  name_cn: string | null;
+  designation: string | null;
+  department: string | null;
+  is_primary: boolean;
+  channels: SearchChannel[];
+};
+
+/** GET /companies/{id} — the detail-page shape. */
+export type CompanyDetail = CompanyListItem & {
+  address: string | null;
+  lead_source: string | null;
+  notes: string | null;
+  contacts: CompanyContact[];
+};
+
 export type ContactListItem = {
   id: number;
   name_en: string;
@@ -52,6 +71,7 @@ export type ContactListItem = {
   department: string | null;
   is_primary: boolean;
   company: { id: number; name_en: string } | null;
+  channels: SearchChannel[];
 };
 
 export type ProductListItem = {
@@ -66,12 +86,21 @@ export type ProductListItem = {
 export type OfferListItem = {
   id: number;
   company: { id: number; name_en: string } | null;
-  product: { id: number; name_en: string; cas_number: string | null } | null;
+  product: {
+    id: number;
+    name_en: string;
+    cas_number: string | null;
+    indication_text: string | null;
+    /** Independent of material type (FR-PROD-08); a product may have several. */
+    therapeutic_classes: string[];
+  } | null;
   material_type: MaterialType | null;
   market_segment: string | null;
   commercial_status: string | null;
   is_sterile: boolean;
   is_watchlisted: boolean;
+  /** This supplier's own spec — can differ between suppliers of the same product. */
+  spec_text: string | null;
 };
 
 export type LabelledCount = {
@@ -176,4 +205,9 @@ export type CompanyListParams = ListParams & {
   status?: CompanyStatus;
   material_type?: MaterialType;
   is_watchlisted?: boolean;
+};
+
+export type OfferListParams = ListParams & {
+  company_id?: number;
+  product_id?: number;
 };

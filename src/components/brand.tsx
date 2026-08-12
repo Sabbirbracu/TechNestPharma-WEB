@@ -61,7 +61,14 @@ export function BrandLockup({
     <span className={cn("flex items-center", s.gap, className)}>
       <BrandMark size={s.mark} inverted={inverted} />
       <span className="flex flex-col leading-tight">
-        <span className={cn("font-semibold tracking-tight", s.name)}>
+        <span 
+          className={cn("font-bold tracking-tighter", s.name)}
+          style={{ 
+            fontFamily: "'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif",
+            letterSpacing: '-0.03em',
+            fontWeight: 700
+          }}
+        >
           {inverted ? (
             <>
               <span className="text-white">Tech</span>
@@ -78,10 +85,15 @@ export function BrandLockup({
         </span>
         <span
           className={cn(
-            "font-medium uppercase tracking-[0.12em]",
+            "font-bold uppercase",
             inverted ? "text-sidebar-foreground/50" : "text-muted-foreground",
             s.sub,
           )}
+          style={{ 
+            fontFamily: "'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif",
+            letterSpacing: '0.15em',
+            fontWeight: 600
+          }}
         >
           {showTagline ? "Smart sourcing. Stronger healthcare." : "Sourcing ERP"}
         </span>

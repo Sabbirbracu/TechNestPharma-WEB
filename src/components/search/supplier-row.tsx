@@ -54,16 +54,16 @@ export function SupplierRow({ supplier }: { supplier: SearchSupplier }) {
           </div>
         )}
 
-        {/* Specification */}
-        {supplier.specification && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
-            <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
-            <div className="min-w-0 text-xs">
-              <span className="font-bold text-foreground">Spec: </span>
-              <span className="text-muted-foreground">{supplier.specification}</span>
-            </div>
+        {/* Specification — always shown, N/A when this supplier gave none */}
+        <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
+          <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
+          <div className="min-w-0 text-xs">
+            <span className="font-bold text-foreground">Specification: </span>
+            <span className={supplier.specification ? "text-muted-foreground" : "text-muted-foreground/60 italic"}>
+              {supplier.specification || "N/A"}
+            </span>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Contact channels */}

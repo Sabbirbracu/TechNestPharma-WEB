@@ -2,6 +2,7 @@ import { BadgeCheck, FlaskConical, Stethoscope, Building2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SupplierRow } from "@/components/search/supplier-row";
+import { cn } from "@/lib/utils";
 import type { SearchResults } from "@/types/api";
 
 type Product = SearchResults["products"][number];
@@ -30,11 +31,11 @@ export function ProductResultCard({ product }: { product: Product }) {
                 {[product.name_cn, product.variant].filter(Boolean).join(" · ")}
               </p>
             )}
-            {product.therapeutic_classes.length > 0 && (
-              <div className="mt-2.5 flex items-center gap-2.5">
-                <p className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Therapeutic Class:
-                </p>
+            <div className="mt-2.5 flex items-center gap-2.5">
+              <p className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Therapeutic Class:
+              </p>
+              {product.therapeutic_classes.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {product.therapeutic_classes.map((name) => (
                     <Badge key={name} variant="secondary" className="text-[11px] font-semibold">
@@ -42,29 +43,34 @@ export function ProductResultCard({ product }: { product: Product }) {
                     </Badge>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <span className="text-xs italic text-muted-foreground/60">N/A</span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* CAS Number - premium badge */}
-        {product.cas_number && (
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-sm ring-1 ring-border/20">
-            <div className="text-center">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">CAS</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-foreground tabular-nums">
-                {product.cas_number}
-              </p>
-            </div>
-            {product.cas_is_verified && (
-              <BadgeCheck
-                className="size-5 text-success"
-                aria-label="Checksum verified"
-                strokeWidth={2.5}
-              />
-            )}
+        {/* CAS Number - always shown, N/A when the sheet had none (D:2026-08-11) */}
+        <div className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-sm ring-1 ring-border/20">
+          <div className="text-center">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">CAS</p>
+            <p
+              className={cn(
+                "mt-0.5 font-mono text-sm font-bold tabular-nums",
+                product.cas_number ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {product.cas_number || "N/A"}
+            </p>
           </div>
-        )}
+          {product.cas_number && product.cas_is_verified && (
+            <BadgeCheck
+              className="size-5 text-success"
+              aria-label="Checksum verified"
+              strokeWidth={2.5}
+            />
+          )}
+        </div>
       </div>
 
       {/* Product details */}

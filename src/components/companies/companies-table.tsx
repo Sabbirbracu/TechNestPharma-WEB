@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Star } from "lucide-react";
 import { useCompanies, useCountries } from "@/lib/queries";
 import { useDebounced } from "@/lib/use-debounced";
@@ -30,6 +31,7 @@ const STATUS_VARIANT: Record<
 const PAGE_SIZE = 25;
 
 export function CompaniesTable() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [countryId, setCountryId] = useState<number | undefined>();
   const [companyType, setCompanyType] = useState<CompanyType | undefined>();
@@ -164,6 +166,7 @@ export function CompaniesTable() {
         isLoading={isFetching}
         error={error}
         getRowKey={(row) => row.id}
+        onRowClick={(row) => router.push(`/companies/${row.id}`)}
         emptyTitle="No companies match"
         emptyDescription="Try clearing the filters, or import the supplier sheet to populate the catalogue."
       />

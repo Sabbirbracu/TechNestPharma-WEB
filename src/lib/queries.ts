@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type {
+  CompanyDetail,
   CompanyListItem,
   CompanyListParams,
   ContactListItem,
@@ -15,6 +16,7 @@ import type {
   DashboardStats,
   ListParams,
   OfferListItem,
+  OfferListParams,
   Page,
   ProductListItem,
   SearchResults,
@@ -47,7 +49,7 @@ export const keys = {
   },
   offers: {
     all: ["offers"] as const,
-    list: (params: ListParams) => ["offers", "list", params] as const,
+    list: (params: OfferListParams) => ["offers", "list", params] as const,
   },
 };
 
@@ -101,6 +103,14 @@ export function useCompanies(params: CompanyListParams) {
   });
 }
 
+export function useCompany(id: number) {
+  return useQuery({
+    queryKey: keys.companies.detail(id),
+    queryFn: () => apiFetch<CompanyDetail>(`/companies/${id}`),
+    enabled: Number.isFinite(id),
+  });
+}
+
 export function useContacts(params: ListParams) {
   return useQuery({
     queryKey: keys.contacts.list(params),
@@ -119,7 +129,7 @@ export function useProducts(params: ListParams) {
   });
 }
 
-export function useOffers(params: ListParams) {
+export function useOffers(params: OfferListParams) {
   return useQuery({
     queryKey: keys.offers.list(params),
     queryFn: () =>
