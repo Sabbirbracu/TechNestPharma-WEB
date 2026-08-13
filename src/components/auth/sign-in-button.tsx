@@ -18,7 +18,7 @@ export function SignInButton({
 }: SignInButtonProps) {
   const { status } = useAuth();
   const router = useRouter();
-  const { openDialog, ready } = useSignInDialog();
+  const { openDialog } = useSignInDialog();
 
   // Already signed in? The button becomes a shortcut rather than a login prompt.
   if (status === "authenticated") {
@@ -30,11 +30,7 @@ export function SignInButton({
   }
 
   return (
-    <Button
-      {...buttonProps}
-      disabled={buttonProps.disabled || !ready}
-      onClick={openDialog}
-    >
+    <Button {...buttonProps} onClick={openDialog}>
       {children}
     </Button>
   );

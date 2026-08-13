@@ -2,9 +2,11 @@ import Link from "next/link";
 import { ArrowRight, Shield } from "lucide-react";
 import { BrandLockup } from "@/components/brand";
 import { SignInButton } from "@/components/auth/sign-in-button";
+import { SignInDialogProvider } from "@/components/auth/sign-in-dialog";
 
 export default function LandingPage() {
   return (
+    <SignInDialogProvider>
     <div className="relative flex min-h-screen flex-col overflow-hidden">
       {/* Modern Pharmaceutical Background */}
       <div className="pointer-events-none absolute inset-0">
@@ -191,5 +193,6 @@ export default function LandingPage() {
         </div>
       </main>
     </div>
+    </SignInDialogProvider>
   );
 }
