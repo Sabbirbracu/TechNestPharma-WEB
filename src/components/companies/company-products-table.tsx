@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { Pencil } from "lucide-react";
 import { useOffers } from "@/lib/queries";
 import { DataTable, type Column } from "@/components/data-table";
 import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ProductFormDialog } from "@/components/companies/product-form-dialog";
 import type { OfferListItem } from "@/types/api";
 
 const PAGE_SIZE = 20;
@@ -23,6 +26,7 @@ function NotAvailable() {
  */
 export function CompanyProductsTable({ companyId }: { companyId: number }) {
   const [page, setPage] = useState(1);
+  const [editingOffer, setEditingOffer] = useState<OfferListItem | null>(null);
   const { data, isFetching, error } = useOffers({
     company_id: companyId,
     page,
@@ -87,6 +91,35 @@ export function CompanyProductsTable({ companyId }: { companyId: number }) {
         ),
       className: "hidden lg:table-cell",
     },
+    {
+      header: "Qualification / Approval",
+      cell: (row) =>
+        row.qualification_text ? (
+          <span className="text-muted-foreground">{row.qualification_text}</span>
+        ) : (
+          <NotAvailable />
+        ),
+      className: "hidden xl:table-cell",
+    },
+    {
+      header: "Packing / Details",
+      cell: (row) =>
+        row.packing_text ? (
+          <span className="text-muted-foreground">{row.packing_text}</span>
+        ) : (
+          <NotAvailable />
+        ),
+      className: "hidden xl:table-cell",
+    },
+    {
+      header: "Edit",
+      cell: (row) => (
+        <Button variant="outline" size="sm" onClick={() => setEditingOffer(row)}>
+          <Pencil className="size-3.5" />
+          Edit
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -110,6 +143,13 @@ export function CompanyProductsTable({ companyId }: { companyId: number }) {
           onPageChange={setPage}
         />
       )}
+
+      <ProductFormDialog
+        open={editingOffer !== null}
+        onClose={() => setEditingOffer(null)}
+        companyId={companyId}
+        offer={editingOffer}
+      />
     </div>
   );
 }

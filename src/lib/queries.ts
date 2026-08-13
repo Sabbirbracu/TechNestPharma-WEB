@@ -11,14 +11,21 @@ import type {
   CompanyDetail,
   CompanyListItem,
   CompanyListParams,
+  CompanyUpdateInput,
+  ContactCreateInput,
   ContactListItem,
+  ContactUpdateInput,
   CountryRef,
   DashboardStats,
   ListParams,
+  OfferCreateInput,
   OfferListItem,
   OfferListParams,
+  OfferUpdateInput,
   Page,
+  ProductCreateInput,
   ProductListItem,
+  ProductUpdateInput,
   SearchResults,
 } from "@/types/api";
 
@@ -135,6 +142,91 @@ export function useOffers(params: OfferListParams) {
     queryFn: () =>
       apiFetch<Page<OfferListItem>>(`/offers${toQueryString(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Creates a contact and refreshes both its company's detail page and the
+ *  standalone contacts list, since both cache the same rows independently. */
+export function useCreateContact(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ContactCreateInput) =>
+      apiFetch("/contacts", { method: "POST", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.contacts.all });
+      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+export function useUpdateContact(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: ContactUpdateInput & { id: number }) =>
+      apiFetch(`/contacts/${id}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.contacts.all });
+    },
+  });
+}
+
+export function useUpdateCompany(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CompanyUpdateInput) =>
+      apiFetch(`/companies/${companyId}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.companies.all });
+    },
+  });
+}
+
+/** Only needs the new id back, to chain into `useCreateOffer` — the fuller
+ *  ProductCreateResult (same_cas warnings, etc.) isn't used here. */
+export function useCreateProduct() {
+  return useMutation({
+    mutationFn: (payload: ProductCreateInput) =>
+      apiFetch<{ product: { id: number } }>("/products", {
+        method: "POST",
+        json: payload,
+      }),
+  });
+}
+
+export function useUpdateProduct() {
+  return useMutation({
+    mutationFn: ({ id, ...payload }: ProductUpdateInput & { id: number }) =>
+      apiFetch(`/products/${id}`, { method: "PATCH", json: payload }),
+  });
+}
+
+/** Links a product to a company as a supplier offer. Invalidates the
+ *  company's offers (its "Product Catalogue" table) and the dashboard count. */
+export function useCreateOffer(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: OfferCreateInput) =>
+      apiFetch("/offers", { method: "POST", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.offers.all });
+      queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+export function useUpdateOffer(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: OfferUpdateInput & { id: number }) =>
+      apiFetch(`/offers/${id}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.offers.all });
+      queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+    },
   });
 }
 

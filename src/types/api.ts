@@ -8,8 +8,11 @@
  */
 
 import type {
+  ApplicationType,
+  CommercialStatus,
   CompanyStatus,
   CompanyType,
+  MarketSegment,
   MaterialType,
   UserRole,
 } from "./domain";
@@ -101,6 +104,8 @@ export type OfferListItem = {
   is_watchlisted: boolean;
   /** This supplier's own spec — can differ between suppliers of the same product. */
   spec_text: string | null;
+  qualification_text: string | null;
+  packing_text: string | null;
 };
 
 export type LabelledCount = {
@@ -147,6 +152,36 @@ export type SearchChannel = {
   is_primary: boolean;
 };
 
+/** POST/PATCH /contacts channel entry — mirrors backend ChannelIn. */
+export type ChannelInput = {
+  channel: ChannelType;
+  value: string;
+  is_primary?: boolean;
+};
+
+export type ContactCreateInput = {
+  company_id: number;
+  name_en: string;
+  name_cn?: string | null;
+  designation?: string | null;
+  department?: string | null;
+  is_primary?: boolean;
+  notes?: string | null;
+  channels: ChannelInput[];
+};
+
+/** Omitting `channels` leaves them untouched; `channels: []` clears them —
+ *  the edit form always submits the full set it displayed. */
+export type ContactUpdateInput = {
+  name_en?: string;
+  name_cn?: string | null;
+  designation?: string | null;
+  department?: string | null;
+  is_primary?: boolean;
+  notes?: string | null;
+  channels?: ChannelInput[];
+};
+
 export type SearchContact = {
   id: number;
   name_en: string;
@@ -166,6 +201,8 @@ export type SearchSupplier = {
   fallback_email: string | null;
   /** This supplier's own spec — can differ between suppliers of the same product. */
   specification: string | null;
+  qualification: string | null;
+  packing: string | null;
 };
 
 /** Search returns products only — companies and contacts have their own
@@ -206,6 +243,56 @@ export type CompanyListParams = ListParams & {
   material_type?: MaterialType;
   is_watchlisted?: boolean;
 };
+
+/** PATCH /companies/{id} — every field optional, only what's sent changes. */
+export type CompanyUpdateInput = {
+  name_en?: string;
+  name_cn?: string | null;
+  short_name?: string | null;
+  company_type?: CompanyType;
+  status?: CompanyStatus;
+  country_id?: number | null;
+  city?: string | null;
+  address?: string | null;
+  website?: string | null;
+  is_watchlisted?: boolean;
+  notes?: string | null;
+};
+
+/** POST /products body — mirrors backend ProductCreate. */
+export type ProductCreateInput = {
+  name_en: string;
+  name_cn?: string | null;
+  variant?: string | null;
+  molecular_formula?: string | null;
+  indication_text?: string | null;
+  notes?: string | null;
+  cas?: string | null;
+};
+
+/** PATCH /products/{id} — every field optional. */
+export type ProductUpdateInput = Partial<ProductCreateInput>;
+
+/** POST /offers body — mirrors backend OfferCreate (a company↔product link
+ *  with this supplier's own spec, material type, etc). */
+export type OfferCreateInput = {
+  company_id: number;
+  product_id: number;
+  material_type?: MaterialType | null;
+  market_segment?: MarketSegment | null;
+  application?: ApplicationType | null;
+  commercial_status?: CommercialStatus | null;
+  is_sterile?: boolean;
+  spec_text?: string | null;
+  qualification_text?: string | null;
+  packing_text?: string | null;
+  remarks?: string | null;
+};
+
+/** PATCH /offers/{id} — every field optional. */
+export type OfferUpdateInput = Partial<
+  Omit<OfferCreateInput, "company_id" | "product_id">
+>;
 
 export type OfferListParams = ListParams & {
   company_id?: number;

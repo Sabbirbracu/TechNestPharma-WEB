@@ -1,4 +1,4 @@
-import { Building2, User, Mail, ClipboardList, MapPin } from "lucide-react";
+import { Building2, User, Mail, ClipboardList, MapPin, ShieldCheck, Package } from "lucide-react";
 import { ChannelChip } from "@/components/search/channel-chip";
 import type { SearchSupplier } from "@/types/api";
 
@@ -54,14 +54,37 @@ export function SupplierRow({ supplier }: { supplier: SearchSupplier }) {
           </div>
         )}
 
-        {/* Specification — always shown, N/A when this supplier gave none */}
-        <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
-          <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
-          <div className="min-w-0 text-xs">
-            <span className="font-bold text-foreground">Specification: </span>
-            <span className={supplier.specification ? "text-muted-foreground" : "text-muted-foreground/60 italic"}>
-              {supplier.specification || "N/A"}
-            </span>
+        {/* Specification, qualification, and packing — always shown, N/A
+            when this supplier gave none */}
+        <div className="space-y-1.5">
+          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
+            <ClipboardList className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
+            <div className="min-w-0 text-xs">
+              <span className="font-bold text-foreground">Specification: </span>
+              <span className={supplier.specification ? "text-muted-foreground" : "text-muted-foreground/60 italic"}>
+                {supplier.specification || "N/A"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
+            <div className="min-w-0 text-xs">
+              <span className="font-bold text-foreground">Qualification / Approval: </span>
+              <span className={supplier.qualification ? "text-muted-foreground" : "text-muted-foreground/60 italic"}>
+                {supplier.qualification || "N/A"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2">
+            <Package className="mt-0.5 size-3.5 shrink-0 text-primary" strokeWidth={2} />
+            <div className="min-w-0 text-xs">
+              <span className="font-bold text-foreground">Packing / Details: </span>
+              <span className={supplier.packing ? "text-muted-foreground" : "text-muted-foreground/60 italic"}>
+                {supplier.packing || "N/A"}
+              </span>
+            </div>
           </div>
         </div>
       </div>
