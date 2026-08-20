@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type {
+  CompanyCreateInput,
+  CompanyCreateResult,
   CompanyDetail,
   CompanyListItem,
   CompanyListParams,
@@ -19,14 +21,32 @@ import type {
   DashboardStats,
   ListParams,
   OfferCreateInput,
+  OfferDetail,
   OfferListItem,
   OfferListParams,
+  ProductListParams,
   OfferUpdateInput,
   Page,
   ProductCreateInput,
   ProductListItem,
   ProductUpdateInput,
+  ImportBatch,
+  ImportField,
+  ImportPreviewSummary,
+  ImportRow,
+  ImportRowFilter,
+  OcrBatchResult,
+  OcrStatus,
   SearchResults,
+  SheetPreview,
+  ShortlistMembership,
+  StageInput,
+  TenderCreateInput,
+  TenderDetail,
+  TenderItemInput,
+  TenderListItem,
+  TenderListParams,
+  TenderUpdateInput,
 } from "@/types/api";
 
 /**
@@ -52,11 +72,31 @@ export const keys = {
   },
   products: {
     all: ["products"] as const,
-    list: (params: ListParams) => ["products", "list", params] as const,
+    list: (params: ProductListParams) => ["products", "list", params] as const,
+  },
+  imports: {
+    all: ["imports"] as const,
+    fields: ["imports", "fields"] as const,
+    ocrStatus: ["imports", "ocr-status"] as const,
+    batches: (params: ListParams) => ["imports", "batches", params] as const,
+    batch: (id: number) => ["imports", "batch", id] as const,
+    summary: (id: number) => ["imports", "batch", id, "summary"] as const,
+    rows: (id: number, params: Record<string, unknown>) =>
+      ["imports", "batch", id, "rows", params] as const,
   },
   offers: {
     all: ["offers"] as const,
     list: (params: OfferListParams) => ["offers", "list", params] as const,
+    detail: (id: number) => ["offers", "detail", id] as const,
+  },
+  tenders: {
+    all: ["tenders"] as const,
+    list: (params: TenderListParams) => ["tenders", "list", params] as const,
+    detail: (id: number) => ["tenders", "detail", id] as const,
+    /** Keyed by the sorted product ids on screen, so two searches that happen
+     *  to show the same products share one cache entry. */
+    memberships: (productIds: number[]) =>
+      ["tenders", "memberships", productIds.join(",")] as const,
   },
 };
 
@@ -127,12 +167,22 @@ export function useContacts(params: ListParams) {
   });
 }
 
-export function useProducts(params: ListParams) {
+export function useProducts(params: ProductListParams) {
   return useQuery({
     queryKey: keys.products.list(params),
     queryFn: () =>
       apiFetch<Page<ProductListItem>>(`/products${toQueryString(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** One offer in full. `null` disables the query — the search row it came from
+ *  may have no offer id, and the caller should not have to branch on it. */
+export function useOffer(id: number | null) {
+  return useQuery({
+    queryKey: keys.offers.detail(id ?? 0),
+    queryFn: () => apiFetch<OfferDetail>(`/offers/${id}`),
+    enabled: id !== null && Number.isFinite(id),
   });
 }
 
@@ -240,6 +290,314 @@ export function useDeleteEntity(
       apiFetch(`/${resource}/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [resource] });
+      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Tenders (FR-TENDER)
+ * ---------------------------------------------------------------------- */
+
+export function useTenders(params: TenderListParams = {}) {
+  return useQuery({
+    queryKey: keys.tenders.list(params),
+    queryFn: () =>
+      apiFetch<Page<TenderListItem>>(`/tenders${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useTender(id: number) {
+  return useQuery({
+    queryKey: keys.tenders.detail(id),
+    queryFn: () => apiFetch<TenderDetail>(`/tenders/${id}`),
+    enabled: Number.isFinite(id),
+  });
+}
+
+/**
+ * Which tenders the rows on screen are already shortlisted onto — one request
+ * for the whole result page. Per-card lookups would mean a request per row on
+ * every search, so the search page fetches this once and hands each card its
+ * slice.
+ */
+export function useShortlistMemberships(productIds: number[]) {
+  const ids = [...new Set(productIds)].sort((a, b) => a - b);
+  return useQuery({
+    queryKey: keys.tenders.memberships(ids),
+    queryFn: () =>
+      apiFetch<ShortlistMembership[]>(
+        `/tenders/memberships${toQueryString({ product_ids: ids.join(",") })}`,
+      ),
+    enabled: ids.length > 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCreateTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: TenderCreateInput) =>
+      apiFetch<TenderDetail>("/tenders", { method: "POST", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+export function useUpdateTender(tenderId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: TenderUpdateInput) =>
+      apiFetch<TenderDetail>(`/tenders/${tenderId}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/** Shortlists a search row onto a tender. The API is idempotent, so a double
+ *  click costs a request but never an error. */
+export function useAddTenderItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      tenderId,
+      ...payload
+    }: TenderItemInput & { tenderId: number }) =>
+      apiFetch(`/tenders/${tenderId}/items`, { method: "POST", json: payload }),
+    onSuccess: () => {
+      // Both the membership ticks on the search page and the tender's own
+      // item counts move together.
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+export function useRemoveTenderItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenderId, itemId }: { tenderId: number; itemId: number }) =>
+      apiFetch(`/tenders/${tenderId}/items/${itemId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/* -- Import (SRS FR-IMP, 05-architecture Part C) --------------------------
+ *
+ * Three channels, one shared core, so most of this is channel-agnostic: only
+ * `useAnalyseSheet` / `useStageSheet` (B) and `useImportLeaflet` (C) differ.
+ * Channel A needs nothing here — manual entry writes through the ordinary
+ * company/product/offer mutations above.
+ */
+
+/** The system fields a column can be mapped to. Static for the life of the
+ *  session, so it is cached indefinitely rather than refetched per dialog. */
+export function useImportFields() {
+  return useQuery({
+    queryKey: keys.imports.fields,
+    queryFn: () => apiFetch<ImportField[]>("/imports/fields"),
+    staleTime: Infinity,
+  });
+}
+
+/** Whether the server can read a leaflet photo at all. Checked before the
+ *  upload rather than after, so an operator on a box with no Tesseract is told
+ *  up front instead of after picking a 4 MB file. */
+export function useOcrStatus() {
+  return useQuery({
+    queryKey: keys.imports.ocrStatus,
+    queryFn: () => apiFetch<OcrStatus>("/imports/ocr/status"),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useImportBatches(params: ListParams = {}) {
+  return useQuery({
+    queryKey: keys.imports.batches(params),
+    queryFn: () =>
+      apiFetch<Page<ImportBatch>>(`/imports/batches${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useImportBatch(batchId: number) {
+  return useQuery({
+    queryKey: keys.imports.batch(batchId),
+    queryFn: () => apiFetch<ImportBatch>(`/imports/batches/${batchId}`),
+    enabled: Number.isFinite(batchId),
+  });
+}
+
+export function useImportSummary(batchId: number) {
+  return useQuery({
+    queryKey: keys.imports.summary(batchId),
+    queryFn: () =>
+      apiFetch<ImportPreviewSummary>(`/imports/batches/${batchId}/summary`),
+    enabled: Number.isFinite(batchId),
+  });
+}
+
+export function useImportRows(
+  batchId: number,
+  params: { page?: number; size?: number; only?: ImportRowFilter | null } = {},
+) {
+  return useQuery({
+    queryKey: keys.imports.rows(batchId, params),
+    queryFn: () =>
+      apiFetch<Page<ImportRow>>(
+        `/imports/batches/${batchId}/rows${toQueryString(params)}`,
+      ),
+    enabled: Number.isFinite(batchId),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Channel B, step 1: describe the file and suggest a mapping. Stages nothing,
+ *  so it is safe to run on a file the user then abandons. */
+export function useAnalyseSheet() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      // No Content-Type header: the browser must set the multipart boundary.
+      return apiFetch<SheetPreview>("/imports/files/analyse", {
+        method: "POST",
+        body,
+      });
+    },
+  });
+}
+
+/** Channel B, step 2: apply the confirmed mapping and stage every row. */
+export function useStageSheet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: StageInput) =>
+      apiFetch<ImportBatch>("/imports/files/stage", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.all });
+    },
+  });
+}
+
+/** Channel C: OCR a leaflet photo straight into a staged batch. */
+export function useImportLeaflet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return apiFetch<OcrBatchResult>("/imports/leaflets", {
+        method: "POST",
+        body,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.all });
+    },
+  });
+}
+
+/** Correct one staged cell. The server re-plans the whole batch, because
+ *  fixing a company name changes whether later rows create or match it — so
+ *  every view of this batch is invalidated, not just the edited row. */
+export function useUpdateImportRow(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      rowId,
+      cells,
+    }: {
+      rowId: number;
+      cells: Record<string, string>;
+    }) =>
+      apiFetch<ImportRow>(`/imports/batches/${batchId}/rows/${rowId}`, {
+        method: "PATCH",
+        json: { cells },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.batch(batchId) });
+    },
+  });
+}
+
+export function useDeleteImportRow(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rowId: number) =>
+      apiFetch(`/imports/batches/${batchId}/rows/${rowId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.batch(batchId) });
+    },
+  });
+}
+
+export function useCommitImport(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (skipInvalid: boolean) =>
+      apiFetch<ImportBatch>(`/imports/batches/${batchId}/commit`, {
+        method: "POST",
+        json: { skip_invalid: skipInvalid },
+      }),
+    onSuccess: () => {
+      // A commit writes companies, products and offers, so essentially every
+      // cached list is now stale.
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
+export function useUndoImport(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ImportBatch>(`/imports/batches/${batchId}/undo`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
+export function useDiscardImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: number) =>
+      apiFetch(`/imports/batches/${batchId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.all });
+    },
+  });
+}
+
+/** Channel A (05-architecture C1): create one supplier by hand.
+ *
+ *  Returns near-duplicate warnings alongside the created company; the caller
+ *  shows them, the API does not refuse the write (FR-CO-05). */
+export function useCreateCompany() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CompanyCreateInput) =>
+      apiFetch<CompanyCreateResult>("/companies", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.companies.all });
       queryClient.invalidateQueries({ queryKey: keys.dashboard });
     },
   });

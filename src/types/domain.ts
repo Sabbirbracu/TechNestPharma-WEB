@@ -118,9 +118,28 @@ export type CertType =
   | "iso_9001"
   | "iso_14001"
   | "iso_45001"
+  /** GMP for primary pharmaceutical packaging — the screening credential for
+   *  stopper, foil, and container suppliers. Not applicable to secondary
+   *  packaging such as shrink film. */
+  | "iso_15378"
   | "kosher"
   | "halal"
   | "other";
+
+/** The seven packaging families sourced from China (2026-08). Discriminates
+ *  which columns of a product's packaging spec are meaningful. */
+export type PackagingType =
+  | "rubber_stopper"
+  | "flip_off_seal"
+  /** "Pharma outer wrap" — POF shrink film. Secondary packaging. */
+  | "shrink_film"
+  | "eye_container"
+  | "aluminium_foil"
+  | "pvc_film"
+  | "sterilized_cotton"
+  | "other";
+
+export type SterilizationMethod = "none" | "eo" | "gamma" | "e_beam" | "steam";
 
 export type CertStatus = "valid" | "expired" | "suspended" | "unknown";
 

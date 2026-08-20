@@ -32,17 +32,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav aria-label="Primary" className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      {/* Brand with premium spacing - logo inverted for dark background */}
+      {/* Brand, logo inverted for the dark background. Padding matches the nav
+          below rather than being roomier: at the sidebar's 208px the wordmark
+          needs 115px, and px-6 leaves 114 — one pixel short of keeping
+          "TechNest Pharma" on a single line. */}
       <Link
         href="/dashboard"
         onClick={onNavigate}
-        className="border-b border-sidebar-border/50 px-6 py-6 transition-opacity hover:opacity-90"
+        className="border-b border-sidebar-border/50 px-4 py-6 transition-opacity hover:opacity-90"
         aria-label="TechNest Pharma — go to dashboard"
       >
         <BrandLockup inverted />
       </Link>
 
-      <div className="flex-1 space-y-7 overflow-y-auto px-4 py-3">
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
         {NAV_SECTIONS.map((section, sectionIndex) => (
           <div key={section.label} className="space-y-1.5">
             <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">

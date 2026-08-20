@@ -49,6 +49,13 @@ export function setRefreshHandler(handler: RefreshHandler | null) {
 type RequestOptions = Omit<RequestInit, "body"> & {
   /** JSON-serialisable body; set automatically with the right content-type. */
   json?: unknown;
+  /**
+   * Raw body, for the file uploads the import channels need. Pass a `FormData`
+   * and leave the content-type alone: only the browser can generate the
+   * multipart boundary, and setting the header by hand produces a request the
+   * server cannot parse.
+   */
+  body?: BodyInit;
   /** Skip attaching the in-memory access token (e.g. the login call). */
   anonymous?: boolean;
   /** Internal: set once a 401 has already triggered a refresh-and-retry. */
@@ -57,7 +64,7 @@ type RequestOptions = Omit<RequestInit, "body"> & {
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { json, anonymous, retried, headers, ...init }: RequestOptions = {},
+  { json, body, anonymous, retried, headers, ...init }: RequestOptions = {},
 ): Promise<T> {
   const finalHeaders = new Headers(headers);
   if (json !== undefined) {
@@ -71,16 +78,19 @@ export async function apiFetch<T = unknown>(
     ...init,
     headers: finalHeaders,
     credentials: "include",
-    body: json !== undefined ? JSON.stringify(json) : undefined,
+    body: json !== undefined ? JSON.stringify(json) : body,
   });
 
   // The access token lives ~15 minutes; on expiry renew it once and replay.
   if (res.status === 401 && !anonymous && !retried && refreshHandler) {
     const renewed = await refreshHandler();
     if (renewed) {
+      // A FormData body is replayable, so an upload that raced the token
+      // expiring is retried rather than lost.
       return apiFetch<T>(path, {
         ...init,
         json,
+        body,
         headers,
         retried: true,
       });

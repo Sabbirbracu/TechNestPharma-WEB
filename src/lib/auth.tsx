@@ -52,6 +52,31 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 /** Renew this many seconds before the access token actually expires. */
 const REFRESH_SKEW_SECONDS = 60;
 
+/**
+ * Refresh tokens rotate on every use, and the backend treats a replayed
+ * (already-rotated) cookie as theft — it revokes the whole session, not just
+ * that request (services/auth.py). The refresh cookie is shared browser-wide,
+ * so with several tabs open, a reload that hits all of them at once (e.g. a
+ * dev-server Fast Refresh full reload) makes each tab's bootstrap fire its own
+ * /auth/refresh with the same pre-rotation cookie — the second one to land
+ * gets treated as reuse and kills every tab's session.
+ *
+ * The Web Locks API serializes the actual network call across tabs: whichever
+ * tab runs second waits its turn, and by then the browser has already applied
+ * the first tab's Set-Cookie, so its request carries the *new* cookie instead
+ * of racing on the stale one. Falls back to running unlocked where Web Locks
+ * isn't available (e.g. older Safari).
+ */
+const REFRESH_LOCK_NAME = "pharmasourcing-erp:auth-refresh";
+
+function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  if (typeof navigator === "undefined" || !navigator.locks) return fn();
+  // lib.dom's LockManager.request types don't unwrap a Promise-returning
+  // callback (it infers T = Promise<T> here), though at runtime it awaits the
+  // callback and resolves with the unwrapped value per spec.
+  return navigator.locks.request(REFRESH_LOCK_NAME, fn) as Promise<T>;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
@@ -111,10 +136,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const attempt = (async () => {
       try {
-        const token = await apiFetch<TokenResponse>("/auth/refresh", {
-          method: "POST",
-          anonymous: true, // the cookie authenticates this call, not the token
-        });
+        const token = await runExclusive(() =>
+          apiFetch<TokenResponse>("/auth/refresh", {
+            method: "POST",
+            anonymous: true, // the cookie authenticates this call, not the token
+          }),
+        );
         beginSession(token);
         return true;
       } catch {
