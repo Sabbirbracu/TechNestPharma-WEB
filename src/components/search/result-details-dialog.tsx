@@ -450,14 +450,15 @@ function Pending() {
 }
 
 /** "packaging_material" → "Packaging material". */
-function humanise(value: string | null | undefined): string | null {
+export function humanise(value: string | null | undefined): string | null {
   if (!value) return null;
   const spaced = value.replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** A price band with its unit and as-of date, or null when none is recorded. */
-function priceLabel(offer: { 
+/** A price band with its unit and as-of date, or null when none is recorded.
+ *  Exported because the products catalogue renders the same offers. */
+export function priceLabel(offer: { 
   price_min: string | null;
   price_max: string | null;
   currency: string | null;

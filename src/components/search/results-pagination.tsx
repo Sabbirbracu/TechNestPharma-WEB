@@ -3,7 +3,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export const PAGE_SIZES = [10, 20, 50] as const;
+export const PAGE_SIZES = [10, 20, 50, 240] as const;
 
 /**
  * Numbered pager for the results screen. Windowed around the current page with
@@ -16,6 +16,7 @@ export function ResultsPagination({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  itemLabel = "results",
 }: {
   page: number;
   pageCount: number;
@@ -23,6 +24,8 @@ export function ResultsPagination({
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  /** "results", "tenders", … — the noun after the count. */
+  itemLabel?: string;
 }) {
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, total);
@@ -73,7 +76,8 @@ export function ResultsPagination({
         <p className="text-xs font-medium text-muted-foreground">
           Showing <span className="font-bold tabular-nums text-foreground">{first}</span> to{" "}
           <span className="font-bold tabular-nums text-foreground">{last}</span> of{" "}
-          <span className="font-bold tabular-nums text-foreground">{total}</span> results
+          <span className="font-bold tabular-nums text-foreground">{total}</span>{" "}
+          {itemLabel}
         </p>
         <select
           value={pageSize}

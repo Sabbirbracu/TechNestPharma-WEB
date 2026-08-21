@@ -20,10 +20,10 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/empty-state";
 import {
   TENDER_STATUS_OPTIONS,
+  TenderStat,
   TenderStatusBadge,
   closingLabel,
 } from "@/components/tenders/tender-status";
-import { TenderStat } from "@/components/tenders/tender-list";
 import {
   useRemoveTenderItem,
   useTender,

@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { Toaster } from "react-hot-toast";
 import { ApiError } from "@/lib/api";
 import { AuthProvider } from "@/lib/auth";
 
@@ -29,6 +30,28 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>{children}</AuthProvider>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 6000,
+          style: {
+            background: "var(--card)",
+            color: "var(--card-foreground)",
+            border: "1px solid var(--border)",
+            borderRadius: "0.75rem",
+            padding: "0.625rem 0.875rem",
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            boxShadow: "0 10px 30px -10px rgb(0 0 0 / 0.25)",
+          },
+          success: {
+            iconTheme: {
+              primary: "var(--success)",
+              secondary: "var(--success-foreground)",
+            },
+          },
+        }}
+      />
       {process.env.NODE_ENV === "development" && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}

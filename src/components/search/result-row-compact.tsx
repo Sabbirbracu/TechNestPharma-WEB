@@ -113,6 +113,7 @@ export function ResultRowCompact({
           productId={product.id}
           companyId={supplier.company_id}
           offerId={supplier.offer_id}
+          productName={product.name_en}
           memberships={memberships}
           variant="compact"
           className="w-[132px]"

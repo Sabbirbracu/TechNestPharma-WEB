@@ -79,6 +79,24 @@ export type ContactListItem = {
   channels: SearchChannel[];
 };
 
+/**
+ * What a product *is*, rolled up across every live offer for it. Category,
+ * pharmacopoeia and origin are properties of the offer, not the product (D14) —
+ * the same substance is an API to one supplier and an excipient to another — so
+ * the list shows the distinct set across suppliers, most-offered first.
+ *
+ * Always present on a list row, empty rather than absent for a product no
+ * supplier has been attached to yet.
+ */
+export type ProductFacets = {
+  material_types: MaterialType[];
+  /** Compendium codes — USP, BP, EP, JP… */
+  compendia: string[];
+  countries: CountryRef[];
+  applications: ApplicationType[];
+  supplier_count: number;
+};
+
 export type ProductListItem = {
   id: number;
   name_en: string;
@@ -86,6 +104,62 @@ export type ProductListItem = {
   variant: string | null;
   cas_number: string | null;
   cas_is_verified: boolean;
+  indication_text: string | null;
+  therapeutic_classes: string[];
+  is_packaging: boolean;
+  created_at: string | null;
+  facets: ProductFacets;
+};
+
+/** GET /products/{id} — mirrors backend ProductOut. Everything the list row
+ *  leaves out, which is what the details dialog exists to show. */
+export type ProductDetail = ProductListItem & {
+  molecular_formula: string | null;
+  cas_raw: string | null;
+  parent_product_id: number | null;
+  relation_to_parent: string | null;
+  notes: string | null;
+  synonyms: { id: number; synonym: string; synonym_type: string }[];
+  packaging_spec: PackagingSpec | null;
+  /** Same axis as `therapeutic_classes`, with ids — the strings read well, the
+   *  refs are what an edit form binds a selection to. */
+  categories: TherapeuticCategoryRef[];
+  updated_at: string;
+};
+
+/** The therapeutic axis (FR-PROD-08). User-managed, so it is a lookup rather
+ *  than an enum the client can hard-code. */
+export type TherapeuticCategoryRef = {
+  id: number;
+  name: string;
+  name_cn: string | null;
+};
+
+/** GET /products/{id}/suppliers — who sells this product and how to reach
+ *  them. Deliberately the same `SearchSupplier` shape the search results
+ *  carry: the answer to "who makes this" should not differ by how the user
+ *  got here. */
+export type ProductSuppliers = {
+  items: SearchSupplier[];
+  /** All of them, which may exceed items.length when the cap bites. */
+  total: number;
+};
+
+/** One tile on the products header strip. */
+export type ProductStatBucket = {
+  key: "total" | "api" | "excipient" | "packaging_material" | "other";
+  label: string;
+  count: number;
+  /** Percent growth over the trailing window; null when there is no baseline to
+   *  compare against, which the UI renders as no trend line rather than 0%. */
+  change_pct: number | null;
+};
+
+/** GET /products/stats. Category buckets partition the catalogue, so the four
+ *  of them sum to `total`. */
+export type ProductStats = {
+  buckets: ProductStatBucket[];
+  window_days: number;
 };
 
 export type OfferListItem = {
@@ -309,6 +383,9 @@ export type ProductListParams = ListParams & {
    *  as packaging when it has a packaging_spec row — there is no material_type
    *  on the product itself, that lives on the offer. */
   is_packaging?: boolean;
+  /** Products any supplier offers as this material type. Asks "is this sold as
+   *  an X", not "is this an X" — the same question the Category column answers. */
+  material_type?: MaterialType;
 };
 
 export type CompanyListParams = ListParams & {
@@ -349,7 +426,11 @@ export type ProductCreateInput = {
 };
 
 /** PATCH /products/{id} — every field optional. */
-export type ProductUpdateInput = Partial<ProductCreateInput>;
+export type ProductUpdateInput = Partial<ProductCreateInput> & {
+  /** Replaces the therapeutic axis wholesale. Omit to leave it untouched;
+   *  `[]` clears it. */
+  category_ids?: number[];
+};
 
 /** POST /offers body — mirrors backend OfferCreate (a company↔product link
  *  with this supplier's own spec, material type, etc). */
@@ -401,6 +482,17 @@ export type OfferListParams = ListParams & {
 
 export type TenderStatus = "draft" | "submitted" | "won" | "lost" | "cancelled";
 
+/** How a live tender reads on the board — derived from status + closing_date,
+ *  not a stored value. See `display_status_expr` on the backend. */
+export type TenderDisplayStatus =
+  | "open"
+  | "closing_soon"
+  | "awarded"
+  | "cancelled"
+  | "lost";
+
+export type TenderAuthorityType = "government" | "private";
+
 export type TenderItem = {
   id: number;
   tender_id: number;
@@ -428,14 +520,19 @@ export type TenderListItem = {
   name: string;
   reference_no: string | null;
   buyer_name: string | null;
+  authority_type: TenderAuthorityType | null;
   country_id: number | null;
   status: TenderStatus;
+  display_status: TenderDisplayStatus;
   closing_date: string | null;
   notes: string | null;
   item_count: number;
   /** Distinct products; lower than item_count when one product is
    *  shortlisted from several suppliers. */
   product_count: number;
+  /** Distinct products with a quotation in hand — the progress bar's
+   *  numerator. See `sourced_counts_for` on the backend. */
+  sourced_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -446,12 +543,32 @@ export type TenderDetail = TenderListItem & {
 
 export type TenderListParams = ListParams & {
   status?: TenderStatus;
+  display_status?: TenderDisplayStatus;
+  authority_type?: TenderAuthorityType;
+  closing_from?: string;
+  closing_to?: string;
+  scope?: "mine" | "participated";
+};
+
+export type TenderStatBucket = {
+  count: number;
+  /** null when the prior 30-day window had zero tenders in this bucket. */
+  delta_pct: number | null;
+};
+
+export type TenderStats = {
+  total: TenderStatBucket;
+  open: TenderStatBucket;
+  closing_soon: TenderStatBucket;
+  awarded: TenderStatBucket;
+  cancelled: TenderStatBucket;
 };
 
 export type TenderCreateInput = {
   name: string;
   reference_no?: string | null;
   buyer_name?: string | null;
+  authority_type?: TenderAuthorityType | null;
   country_id?: number | null;
   closing_date?: string | null;
   notes?: string | null;
@@ -487,6 +604,8 @@ export type ImportStatus =
   | "uploaded"
   | "parsed"
   | "previewed"
+  /** Prepared and handed to an owner for sign-off; still writes nothing. */
+  | "pending_approval"
   | "committed"
   | "failed"
   | "rolled_back";
@@ -546,6 +665,8 @@ export type ImportBatch = {
   offers_created: number | null;
   started_at: string | null;
   finished_at: string | null;
+  submitted_by: number | null;
+  submitted_at: string | null;
   notes: string | null;
   column_map: Record<string, number> | null;
   source_document_id: number | null;
@@ -642,4 +763,212 @@ export type CompanyCreateInput = {
 export type CompanyCreateResult = {
   company: CompanyDetail;
   warnings: SimilarCompany[];
+};
+
+/* -------------------------------------------------------------------------
+ * Sourcing (FR-SRC)
+ *
+ * One supplier inquiry, the conversations it produces, and the quotations that
+ * come back. A request does not need a tender behind it — speculative sourcing
+ * is a real workflow (decision 2026-08-21).
+ * ---------------------------------------------------------------------- */
+
+export type SourcingStatus =
+  | "draft"
+  | "sent"
+  | "replied"
+  | "quotation_received"
+  | "negotiating"
+  | "selected"
+  | "rejected"
+  | "no_response"
+  | "cancelled";
+
+export type CommunicationChannel =
+  | "email"
+  | "phone"
+  | "whatsapp"
+  | "wechat"
+  | "meeting"
+  | "other";
+
+export type CommunicationDirection = "outbound" | "inbound";
+
+export type SourcingProductRef = {
+  id: number;
+  name_en: string;
+  cas_number: string | null;
+};
+
+export type SourcingCompanyRef = {
+  id: number;
+  name_en: string;
+  name_cn: string | null;
+};
+
+export type SourcingContactRef = {
+  id: number;
+  name_en: string;
+  designation: string | null;
+};
+
+export type SourcingTenderRef = {
+  id: number;
+  name: string;
+  reference_no: string | null;
+  closing_date: string | null;
+};
+
+export type Quotation = {
+  id: number;
+  sourcing_request_id: number;
+  source_communication_id: number | null;
+  quoted_on: string;
+  /** A band; `price_max` null means a fixed price. NEVER render an amount
+   *  without `price_unit` — per-kg and per-piece differ by orders of magnitude. */
+  price_min: string | null;
+  price_max: string | null;
+  currency: string | null;
+  price_unit: string | null;
+  moq: string | null;
+  moq_unit: string | null;
+  packing: string | null;
+  lead_time_days: number | null;
+  incoterm: string | null;
+  valid_until: string | null;
+  specification: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Communication = {
+  id: number;
+  company_id: number;
+  contact_person_id: number | null;
+  sourcing_request_id: number | null;
+  tender_id: number | null;
+  channel: CommunicationChannel;
+  direction: CommunicationDirection;
+  occurred_at: string;
+  subject: string | null;
+  body: string | null;
+  counterparty: string | null;
+  external_id: string | null;
+  external_thread_id: string | null;
+  has_attachments: boolean;
+};
+
+export type StatusHistoryEntry = {
+  id: number;
+  from_status: SourcingStatus | null;
+  to_status: SourcingStatus;
+  changed_at: string;
+  changed_by: number | null;
+  note: string | null;
+};
+
+export type SourcingRequestListItem = {
+  id: number;
+  status: SourcingStatus;
+  product: SourcingProductRef;
+  company: SourcingCompanyRef;
+  contact_person: SourcingContactRef | null;
+  /** Null for a speculative inquiry with no bid behind it. */
+  tender: SourcingTenderRef | null;
+  required_quantity: string | null;
+  quantity_unit: string | null;
+  sent_at: string | null;
+  first_replied_at: string | null;
+  follow_up_on: string | null;
+  target_price_min: string | null;
+  target_price_max: string | null;
+  target_currency: string | null;
+  target_price_unit: string | null;
+  created_at: string;
+  quotation_count: number;
+  communication_count: number;
+};
+
+export type SourcingRequestDetail = SourcingRequestListItem & {
+  required_specification: string | null;
+  required_packing: string | null;
+  required_documents: string[] | null;
+  supplier_product_id: number | null;
+  notes: string | null;
+  updated_at: string;
+  history: StatusHistoryEntry[];
+  communications: Communication[];
+  quotations: Quotation[];
+};
+
+export type SourcingRequestParams = ListParams & {
+  status?: SourcingStatus;
+  tender_id?: number;
+  product_id?: number;
+  company_id?: number;
+  follow_up_before?: string;
+  /** true = speculative inquiries only, false = tender-backed only. */
+  untendered?: boolean;
+};
+
+export type SourcingPipelineColumn = {
+  status: SourcingStatus;
+  label: string;
+  count: number;
+};
+
+export type SourcingPipeline = {
+  columns: SourcingPipelineColumn[];
+  total: number;
+};
+
+export type SourcingRequestCreateInput = {
+  product_id: number;
+  company_id: number;
+  contact_person_id?: number | null;
+  supplier_product_id?: number | null;
+  tender_id?: number | null;
+  required_quantity?: string | null;
+  quantity_unit?: string | null;
+  required_specification?: string | null;
+  required_packing?: string | null;
+  required_documents?: string[] | null;
+  target_price_min?: string | null;
+  target_price_max?: string | null;
+  target_currency?: string | null;
+  target_price_unit?: string | null;
+  follow_up_on?: string | null;
+  notes?: string | null;
+};
+
+export type SourcingRequestUpdateInput = Partial<
+  Omit<SourcingRequestCreateInput, "product_id" | "company_id">
+>;
+
+export type CommunicationCreateInput = {
+  company_id: number;
+  contact_person_id?: number | null;
+  sourcing_request_id?: number | null;
+  tender_id?: number | null;
+  channel: CommunicationChannel;
+  direction: CommunicationDirection;
+  occurred_at?: string | null;
+  subject?: string | null;
+  body?: string | null;
+  counterparty?: string | null;
+  has_attachments?: boolean;
+};
+
+/* -------------------------------------------------------------------------
+ * Activity feed (SRS FR-ADM-02)
+ * ---------------------------------------------------------------------- */
+
+export type ActivityEntry = {
+  id: number;
+  occurred_at: string;
+  description: string;
+  entity_type: string;
+  entity_id: number | null;
+  href: string | null;
 };

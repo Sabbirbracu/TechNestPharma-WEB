@@ -42,6 +42,16 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-active: var(--sidebar-active);
 
+  /* Category tiles — see the :root block for why these are their own hues. */
+  --color-tile-green: var(--tile-green);
+  --color-tile-green-bg: var(--tile-green-bg);
+  --color-tile-amber: var(--tile-amber);
+  --color-tile-amber-bg: var(--tile-amber-bg);
+  --color-tile-blue: var(--tile-blue);
+  --color-tile-blue-bg: var(--tile-blue-bg);
+  --color-tile-purple: var(--tile-purple);
+  --color-tile-purple-bg: var(--tile-purple-bg);
+
   --font-sans: var(--font-montserrat);
   --font-mono: var(--font-geist-mono);
 
@@ -105,6 +115,24 @@
   --input: oklch(0.895 0.01 250);
   --ring: oklch(0.358 0.118 255); /* Primary blue for focus rings */
 
+  /* Category tiles (products catalogue).
+
+     A hue per category, deliberately outside the semantic palette. `primary`
+     and `success` say "this is the brand" / "this went well"; these say "this
+     is an excipient" — a taxonomy, not a status. Reusing the semantic tokens
+     would tie a category's colour to an unrelated meaning, and there is no
+     purple or cyan among them at all.
+
+     Each pair is a surface tint plus an ink that clears 4.5:1 on it. */
+  --tile-green: oklch(0.55 0.142 152);
+  --tile-green-bg: oklch(0.952 0.045 155);
+  --tile-amber: oklch(0.605 0.145 62);
+  --tile-amber-bg: oklch(0.955 0.045 75);
+  --tile-blue: oklch(0.565 0.155 245);
+  --tile-blue-bg: oklch(0.952 0.038 240);
+  --tile-purple: oklch(0.565 0.185 302);
+  --tile-purple-bg: oklch(0.95 0.042 305);
+
   /* Sidebar: Deep navy blue background (matching logo dark variant) for premium contrast */
   --sidebar: oklch(0.22 0.045 255); /* Deep navy blue #001f3f / #0a1929 */
   --sidebar-foreground: oklch(0.95 0.005 250); /* Light text for contrast */
@@ -149,6 +177,17 @@
   --border: oklch(1 0 0 / 0.09);
   --input: oklch(1 0 0 / 0.12);
   --ring: oklch(0.66 0.14 253);
+
+  /* Tiles: the ink lifts to read on a dark card, the surface drops to a faint
+     wash of the same hue rather than the near-white of the light theme. */
+  --tile-green: oklch(0.75 0.16 152);
+  --tile-green-bg: oklch(0.75 0.16 152 / 0.14);
+  --tile-amber: oklch(0.79 0.15 70);
+  --tile-amber-bg: oklch(0.79 0.15 70 / 0.14);
+  --tile-blue: oklch(0.72 0.15 248);
+  --tile-blue-bg: oklch(0.72 0.15 248 / 0.16);
+  --tile-purple: oklch(0.74 0.17 302);
+  --tile-purple-bg: oklch(0.74 0.17 302 / 0.16);
 
   --sidebar: oklch(0.185 0.019 255);
   --sidebar-foreground: oklch(0.96 0.005 250);

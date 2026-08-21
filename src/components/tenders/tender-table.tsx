@@ -1,0 +1,492 @@
+"use client";
+
+import Link from "next/link";
+import {
+  AlertCircle,
+  Building2,
+  Copy,
+  Download,
+  Eye,
+  FileSearch,
+  LayoutGrid,
+  List,
+  Loader2,
+  MoreVertical,
+  Trash2,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { useDeleteTender } from "@/lib/queries";
+import { cn } from "@/lib/utils";
+import {
+  DisplayStatusBadge,
+  authorityTypeLabel,
+  closingLabel,
+} from "./tender-status";
+import type { TenderListItem } from "@/types/api";
+
+export function TenderTable({
+  rows,
+  total,
+  isFetching,
+  error,
+  filtered,
+  onResetFilters,
+  view,
+  onViewChange,
+  sort,
+  onSortChange,
+  onExport,
+  exporting,
+}: {
+  rows: TenderListItem[];
+  total: number;
+  isFetching: boolean;
+  error: unknown;
+  filtered: boolean;
+  onResetFilters: () => void;
+  view: "list" | "grid";
+  onViewChange: (view: "list" | "grid") => void;
+  sort: string;
+  onSortChange: (sort: string) => void;
+  onExport: () => void;
+  exporting: boolean;
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-3 border-b border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <p className="text-sm font-bold text-foreground">
+          All Tenders <span className="tabular-nums">({total.toLocaleString()})</span>
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onExport}
+            disabled={exporting || total === 0}
+            className="h-9"
+          >
+            {exporting ? (
+              <Loader2 className="animate-spin" strokeWidth={2.25} />
+            ) : (
+              <Download strokeWidth={2.25} />
+            )}
+            Export
+          </Button>
+
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm">
+            <ViewToggle
+              active={view === "list"}
+              onClick={() => onViewChange("list")}
+              label="Table view"
+              icon={<List className="size-4" strokeWidth={2.25} />}
+            />
+            <ViewToggle
+              active={view === "grid"}
+              onClick={() => onViewChange("grid")}
+              label="Card view"
+              icon={<LayoutGrid className="size-4" strokeWidth={2.25} />}
+            />
+          </div>
+
+          <label className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+              Sort by:
+            </span>
+            <select
+              value={sort}
+              onChange={(event) => onSortChange(event.target.value)}
+              aria-label="Sort tenders"
+              className="h-9 cursor-pointer rounded-lg border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+            >
+              <option value="created_at:desc">Created (Newest)</option>
+              <option value="created_at:asc">Created (Oldest)</option>
+              <option value="closing_date:asc">Closing Date (Soonest)</option>
+              <option value="closing_date:desc">Closing Date (Latest)</option>
+              <option value="name:asc">Name (A–Z)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {error ? (
+        <TableError error={error} />
+      ) : isFetching && rows.length === 0 ? (
+        <TableLoading />
+      ) : rows.length === 0 ? (
+        <TableEmpty filtered={filtered} onReset={onResetFilters} />
+      ) : (
+        <div
+          className={cn(
+            "transition-opacity duration-200",
+            isFetching && "pointer-events-none opacity-60",
+          )}
+        >
+          {view === "list" ? <ListView rows={rows} /> : <CardView rows={rows} />}
+        </div>
+      )}
+    </>
+  );
+}
+
+function ListView({ rows }: { rows: TenderListItem[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
+        <colgroup>
+          <col className="w-[32%]" />
+          <col className="w-[26%]" />
+          <col className="w-[160px]" />
+          <col className="w-[140px]" />
+          <col className="w-[190px]" />
+          <col className="w-[64px]" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-border/60 bg-secondary/40">
+            <HeaderCell>Tender Title &amp; Reference</HeaderCell>
+            <HeaderCell>Authority</HeaderCell>
+            <HeaderCell>Closing Date</HeaderCell>
+            <HeaderCell>Status</HeaderCell>
+            <HeaderCell>Progress</HeaderCell>
+            <HeaderCell> </HeaderCell>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <Row key={row.id} row={row} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Row({ row }: { row: TenderListItem }) {
+  const closing = closingLabel(row.closing_date);
+  const pct = row.product_count > 0 ? (row.sourced_count / row.product_count) * 100 : 0;
+
+  return (
+    <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-accent/40">
+      <td className="overflow-hidden px-4 py-3.5">
+        <Link href={`/tenders/${row.id}`} className="flex items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tile-blue-bg text-tile-blue ring-1 ring-inset ring-tile-blue/15">
+            <Building2 className="size-[18px]" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <p
+              className="truncate text-sm font-bold text-foreground"
+              title={row.name}
+            >
+              {row.name}
+            </p>
+            <p className="truncate text-xs font-medium text-muted-foreground">
+              {row.reference_no ? `Ref: ${row.reference_no}` : "No reference"}
+            </p>
+          </div>
+        </Link>
+      </td>
+
+      <td className="overflow-hidden px-4 py-3.5">
+        <p className="truncate text-xs font-bold text-foreground" title={row.buyer_name ?? undefined}>
+          {row.buyer_name ?? "—"}
+        </p>
+        <p className="truncate text-xs font-medium text-muted-foreground">
+          {authorityTypeLabel(row.authority_type)}
+        </p>
+      </td>
+
+      <td className="overflow-hidden px-4 py-3.5">
+        {row.closing_date ? (
+          <>
+            <p className="text-xs font-medium tabular-nums text-foreground/85">
+              {new Date(row.closing_date).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+            {closing && (
+              <p
+                className={cn(
+                  "text-[11px] font-semibold",
+                  closing.urgent ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {closing.text}
+              </p>
+            )}
+          </>
+        ) : (
+          <span className="text-xs italic text-muted-foreground/60">No date</span>
+        )}
+      </td>
+
+      <td className="overflow-hidden px-4 py-3.5">
+        <DisplayStatusBadge status={row.display_status} />
+      </td>
+
+      <td className="overflow-hidden px-4 py-3.5">
+        {row.product_count > 0 ? (
+          <>
+            <p className="text-xs font-bold tabular-nums text-foreground">
+              {row.sourced_count} / {row.product_count}
+              <span className="ml-1.5 font-medium text-muted-foreground">
+                Products Sourced
+              </span>
+            </p>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  pct >= 100 ? "bg-success" : "bg-primary",
+                )}
+                style={{ width: `${Math.min(100, pct)}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <span className="text-xs font-medium text-muted-foreground/60">
+            No products yet
+          </span>
+        )}
+      </td>
+
+      <td className="px-2 py-3.5" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1">
+          <Link
+            href={`/tenders/${row.id}`}
+            aria-label={`View ${row.name}`}
+            className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground"
+          >
+            <Eye className="size-4" strokeWidth={2.25} />
+          </Link>
+          <RowMenu row={row} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function CardView({ rows }: { rows: TenderListItem[] }) {
+  return (
+    <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
+      {rows.map((row) => {
+        const closing = closingLabel(row.closing_date);
+        const pct = row.product_count > 0 ? (row.sourced_count / row.product_count) * 100 : 0;
+        return (
+          <Link
+            key={row.id}
+            href={`/tenders/${row.id}`}
+            className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-tile-blue-bg text-tile-blue ring-1 ring-inset ring-tile-blue/15">
+                <Building2 className="size-5" strokeWidth={2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold text-foreground">{row.name}</p>
+                <p className="truncate text-xs font-medium text-muted-foreground">
+                  {row.buyer_name ?? "No authority listed"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <DisplayStatusBadge status={row.display_status} />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-2.5 text-xs">
+              <span className="truncate font-medium text-muted-foreground">
+                {row.closing_date
+                  ? new Date(row.closing_date).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "No closing date"}
+              </span>
+              {closing && (
+                <span
+                  className={cn(
+                    "shrink-0 font-semibold",
+                    closing.urgent ? "text-destructive" : "text-tile-amber",
+                  )}
+                >
+                  {closing.text}
+                </span>
+              )}
+            </div>
+
+            {row.product_count > 0 && (
+              <div>
+                <p className="text-[11px] font-bold tabular-nums text-foreground">
+                  {row.sourced_count} / {row.product_count}{" "}
+                  <span className="font-medium text-muted-foreground">Products Sourced</span>
+                </p>
+                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className={cn("h-full rounded-full", pct >= 100 ? "bg-success" : "bg-primary")}
+                    style={{ width: `${Math.min(100, pct)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function RowMenu({ row }: { row: TenderListItem }) {
+  const deleteTender = useDeleteTender();
+
+  return (
+    <DropdownMenu
+      trigger={(props) => (
+        <button
+          type="button"
+          {...props}
+          aria-label={`Actions for ${row.name}`}
+          className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <MoreVertical className="size-4" strokeWidth={2.25} />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <DropdownMenuItem
+            onClick={() => {
+              navigator.clipboard?.writeText(row.reference_no ?? row.name);
+              close();
+            }}
+          >
+            <Copy />
+            Copy reference
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            destructive
+            onClick={() => {
+              close();
+              if (confirm(`Delete "${row.name}"? This cannot be undone from here.`)) {
+                deleteTender.mutate(row.id);
+              }
+            }}
+          >
+            <Trash2 />
+            Delete tender
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenu>
+  );
+}
+
+function HeaderCell({ children }: { children: React.ReactNode }) {
+  return (
+    <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-foreground">
+      {children}
+    </th>
+  );
+}
+
+function ViewToggle({
+  active,
+  onClick,
+  label,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-pressed={active}
+      className={cn(
+        "rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+      )}
+    >
+      {icon}
+    </button>
+  );
+}
+
+function TableError({ error }: { error: unknown }) {
+  return (
+    <div
+      role="alert"
+      className="flex min-h-[280px] flex-col items-center justify-center gap-3 p-12 text-center"
+    >
+      <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive ring-1 ring-destructive/20">
+        <AlertCircle className="size-6" strokeWidth={2} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-bold text-destructive">Could not load tenders</p>
+        <p className="max-w-md text-xs font-medium text-muted-foreground">
+          {error instanceof Error ? error.message : "Unexpected error."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TableLoading() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-[280px] flex-col items-center justify-center gap-3"
+    >
+      <Loader2 className="size-6 animate-spin text-primary" strokeWidth={2} />
+      <span className="text-sm font-medium text-muted-foreground">Loading tenders…</span>
+    </div>
+  );
+}
+
+function TableEmpty({
+  filtered,
+  onReset,
+}: {
+  filtered: boolean;
+  onReset: () => void;
+}) {
+  return (
+    <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 p-12 text-center">
+      <div className="flex size-12 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground ring-1 ring-border/50">
+        <FileSearch className="size-6" strokeWidth={2} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-bold text-foreground">
+          {filtered ? "No tenders match these filters" : "No tenders yet"}
+        </p>
+        <p className="max-w-md text-xs font-medium text-muted-foreground">
+          {filtered
+            ? "Try a different status, or clear the filters to see everything."
+            : "Create your first tender to start building a shortlist against it."}
+        </p>
+      </div>
+      {filtered && (
+        <Button variant="outline" size="sm" onClick={onReset}>
+          Clear filters
+        </Button>
+      )}
+    </div>
+  );
+}

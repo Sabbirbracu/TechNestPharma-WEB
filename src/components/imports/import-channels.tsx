@@ -9,6 +9,7 @@ import {
   History,
   PencilLine,
   ScanText,
+  ShieldCheck,
   Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -22,8 +23,10 @@ import {
 } from "@/components/ui/card";
 import { LeafletUploadDialog } from "@/components/imports/leaflet-upload-dialog";
 import { SheetUploadDialog } from "@/components/imports/sheet-upload-dialog";
+import { useAuth } from "@/lib/auth";
 import { useImportBatches, useOcrStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import type { ImportBatch } from "@/types/api";
 
 type Channel = "sheet" | "leaflet" | null;
 
@@ -37,9 +40,17 @@ export function ImportChannels() {
   const router = useRouter();
   const [channel, setChannel] = useState<Channel>(null);
   const { data: ocr } = useOcrStatus();
-  const recent = useImportBatches({ size: 5 });
+  const recent = useImportBatches({ size: 20 });
+  const { user } = useAuth();
+  const canApprove = user?.role === "owner";
 
-  const unfinished = (recent.data?.items ?? []).filter(
+  const batches = recent.data?.items ?? [];
+  // Two distinct piles, because they need different people. Anything awaiting
+  // approval is somebody else's turn; anything still in preparation is yours.
+  const awaitingApproval = batches.filter(
+    (batch) => batch.status === "pending_approval",
+  );
+  const inPreparation = batches.filter(
     (batch) => batch.status === "previewed" || batch.status === "parsed",
   );
 
@@ -58,30 +69,25 @@ export function ImportChannels() {
         </Link>
       </PageHeader>
 
-      {unfinished.length > 0 && (
-        <section className="mt-4 rounded-xl border border-border bg-accent/30 px-4 py-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Waiting for your approval
-          </h2>
-          <ul className="mt-2 space-y-1.5">
-            {unfinished.map((batch) => (
-              <li key={batch.id}>
-                <Link
-                  href={`/imports/${batch.id}`}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-accent"
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                    {batch.filename}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {(batch.total_rows ?? 0).toLocaleString()} rows staged
-                  </span>
-                  <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {awaitingApproval.length > 0 && (
+        <BatchQueue
+          title={
+            canApprove
+              ? "Waiting for your approval"
+              : "Submitted, waiting for an owner"
+          }
+          icon={ShieldCheck}
+          batches={awaitingApproval}
+          highlight
+        />
+      )}
+
+      {inPreparation.length > 0 && (
+        <BatchQueue
+          title="Still being prepared"
+          icon={FileSpreadsheet}
+          batches={inPreparation}
+        />
       )}
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -125,6 +131,51 @@ export function ImportChannels() {
         onClose={() => setChannel(null)}
       />
     </>
+  );
+}
+
+function BatchQueue({
+  title,
+  icon: Icon,
+  batches,
+  highlight = false,
+}: {
+  title: string;
+  icon: typeof Upload;
+  batches: ImportBatch[];
+  highlight?: boolean;
+}) {
+  return (
+    <section
+      className={`mt-4 rounded-xl border px-4 py-3 ${
+        highlight
+          ? "border-amber-500/30 bg-amber-500/5"
+          : "border-border bg-accent/30"
+      }`}
+    >
+      <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Icon className="size-3.5" />
+        {title}
+      </h2>
+      <ul className="mt-2 space-y-1.5">
+        {batches.map((batch) => (
+          <li key={batch.id}>
+            <Link
+              href={`/imports/${batch.id}`}
+              className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-accent"
+            >
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                {batch.filename}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {(batch.total_rows ?? 0).toLocaleString()} rows
+              </span>
+              <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

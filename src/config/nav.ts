@@ -5,6 +5,7 @@ import {
   FlaskConical,
   Gavel,
   Handshake,
+  Mails,
   TestTube2,
   FileText,
   Search,
@@ -52,6 +53,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Bidding",
     items: [
       { label: "Tenders", href: "/tenders", icon: Gavel, fr: "FR-TENDER" },
+      { label: "Sourcing", href: "/sourcing", icon: Mails, fr: "FR-SRC" },
     ],
   },
   {

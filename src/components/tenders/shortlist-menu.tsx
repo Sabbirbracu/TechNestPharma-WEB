@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   Bookmark,
@@ -10,7 +11,13 @@ import {
   Loader2,
   Plus,
   Search,
+  TriangleAlert,
 } from "lucide-react";
+import toast from "react-hot-toast";
+import {
+  AnchoredPopover,
+  useDismiss,
+} from "@/components/ui/anchored-popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -60,10 +67,15 @@ export type ShortlistMenuProps = {
   /** The offer behind this card, stored on the tender line so it keeps the
    *  spec that was on screen. */
   offerId?: number | null;
+  /** Shown in the confirmation toast — falls back to a generic label so
+   *  callers that don't have a product name handy still get a toast. */
+  productName?: string;
   /** This row's memberships, sliced from the page-level fetch. */
   memberships: ShortlistMembership[];
-  /** `full` is the card's stacked button; `compact` the dense list row. */
-  variant?: "full" | "compact";
+  /** `full` is the card's stacked button, `compact` the dense list row, and
+   *  `icon` the bare bookmark that sits in a table's Actions column — no label,
+   *  because there the column header is the label. */
+  variant?: "full" | "compact" | "icon";
   className?: string;
 };
 
@@ -71,91 +83,123 @@ export function ShortlistMenu({
   productId,
   companyId,
   offerId,
+  productName,
   memberships,
   variant = "full",
   className,
 }: ShortlistMenuProps) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // State rather than refs: the panel is portalled out of this subtree, so it
+  // needs the trigger element as a positioning anchor during render, and it can
+  // no longer be found by a `contains` check on one container.
+  const [triggerEl, setTriggerEl] = useState<HTMLDivElement | null>(null);
+  const [panelEl, setPanelEl] = useState<HTMLDivElement | null>(null);
   const count = memberships.length;
 
-  // Close on an outside click or Escape. Both listeners only exist while the
-  // menu is open, so a page of 50 cards isn't 50 idle document listeners.
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, close, [triggerEl, panelEl]);
 
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen((value) => !value)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={
-          count === 0
-            ? "Add to a tender"
-            : memberships.map((m) => m.tender_name).join(", ")
-        }
-        className={cn(
-          "h-8 w-full gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[11px]",
-          variant === "full" ? "flex-1 lg:flex-none" : "",
-        )}
-      >
-        {count > 0 ? (
-          <BookmarkCheck strokeWidth={2.25} />
-        ) : (
-          <Bookmark strokeWidth={2.25} />
-        )}
-        Shortlist
-        <ChevronDown
+    <div ref={setTriggerEl} className={cn("relative", className)}>
+      {variant === "icon" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={
+            count === 0
+              ? "Add to a tender"
+              : `On ${count} tender${count === 1 ? "" : "s"}`
+          }
+          title={
+            count === 0
+              ? "Add to a tender"
+              : memberships.map((m) => m.tender_name).join(", ")
+          }
           className={cn(
-            "ml-auto transition-transform duration-200",
-            open && "rotate-180",
+            "flex size-8 items-center justify-center rounded-lg border border-transparent transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            count > 0
+              ? "text-success hover:bg-success/10"
+              : "text-muted-foreground hover:border-border hover:bg-accent/70 hover:text-foreground",
+            open && "border-border bg-accent/70 text-foreground",
           )}
-          strokeWidth={2.5}
-        />
-      </Button>
+        >
+          {count > 0 ? (
+            <BookmarkCheck className="size-4" strokeWidth={2.25} />
+          ) : (
+            <Bookmark className="size-4" strokeWidth={2.25} />
+          )}
+        </button>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen((value) => !value)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title={
+            count === 0
+              ? "Add to a tender"
+              : memberships.map((m) => m.tender_name).join(", ")
+          }
+          className={cn(
+            "h-8 w-full gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[11px]",
+            variant === "full" ? "flex-1 lg:flex-none" : "",
+          )}
+        >
+          {count > 0 ? (
+            <BookmarkCheck strokeWidth={2.25} />
+          ) : (
+            <Bookmark strokeWidth={2.25} />
+          )}
+          Shortlist
+          <ChevronDown
+            className={cn(
+              "ml-auto transition-transform duration-200",
+              open && "rotate-180",
+            )}
+            strokeWidth={2.5}
+          />
+        </Button>
+      )}
 
       {/* Mounted only while open: the tender list is fetched on first use, not
-          once per card on every search. */}
-      {open && (
+          once per card on every search. Portalled, because on the products
+          table this menu opens inside an `overflow-x-auto` scroll container
+          that would otherwise crop it to nothing. */}
+      <AnchoredPopover anchor={triggerEl} open={open} align="end">
         <ShortlistPanel
+          panelRef={setPanelEl}
           productId={productId}
           companyId={companyId}
           offerId={offerId ?? null}
+          productName={productName ?? "This product"}
           memberships={memberships}
           onClose={() => setOpen(false)}
         />
-      )}
+      </AnchoredPopover>
     </div>
   );
 }
 
 function ShortlistPanel({
+  panelRef,
   productId,
   companyId,
   offerId,
+  productName,
   memberships,
   onClose,
 }: {
+  /** Callback ref for the panel root, so the menu's dismiss check can tell an
+   *  outside click from one landing on the portalled panel. */
+  panelRef: (element: HTMLDivElement | null) => void;
   productId: number;
   companyId: number | null;
   offerId: number | null;
+  productName: string;
   memberships: ShortlistMembership[];
   onClose: () => void;
 }) {
@@ -165,6 +209,13 @@ function ShortlistPanel({
   const [newClosing, setNewClosing] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busyTenderId, setBusyTenderId] = useState<number | null>(null);
+  /** Tender awaiting the user's yes/no before its item is actually removed —
+   *  a toggle click alone must not delete the row; that costs a re-add and,
+   *  on a tender with several suppliers, might not even be recoverable from
+   *  memory. */
+  const [pendingRemoval, setPendingRemoval] = useState<TenderListItem | null>(
+    null,
+  );
 
   const { data, isLoading } = useTenders({
     size: 50,
@@ -193,24 +244,55 @@ function ShortlistPanel({
     );
   }, [tenders, filter]);
 
+  /** Click on a tender row: ticking one adds right away, but unticking one
+   *  that's already checked only opens the confirm dialog — the actual
+   *  removal happens in `confirmRemove` once the user says yes. */
   async function toggle(tender: TenderListItem) {
+    if (onTender.has(tender.id)) {
+      setPendingRemoval(tender);
+      return;
+    }
     setError(null);
     setBusyTenderId(tender.id);
-    const existing = onTender.get(tender.id);
     try {
-      if (existing) {
-        await removeItem.mutateAsync({
-          tenderId: tender.id,
-          itemId: existing.item_id,
-        });
-      } else {
-        await addItem.mutateAsync({
-          tenderId: tender.id,
-          product_id: productId,
-          company_id: companyId,
-          supplier_product_id: offerId,
-        });
-      }
+      await addItem.mutateAsync({
+        tenderId: tender.id,
+        product_id: productId,
+        company_id: companyId,
+        supplier_product_id: offerId,
+      });
+      toast.success(
+        `Successfully shortlisted ${productName} to "${tender.name}"`,
+        { duration: 6000 },
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not update the tender",
+      );
+    } finally {
+      setBusyTenderId(null);
+    }
+  }
+
+  async function confirmRemove() {
+    const tender = pendingRemoval;
+    if (!tender) return;
+    const existing = onTender.get(tender.id);
+    if (!existing) {
+      setPendingRemoval(null);
+      return;
+    }
+    setError(null);
+    setBusyTenderId(tender.id);
+    try {
+      await removeItem.mutateAsync({
+        tenderId: tender.id,
+        itemId: existing.item_id,
+      });
+      toast.success(`Removed ${productName} from "${tender.name}"`, {
+        duration: 6000,
+      });
+      setPendingRemoval(null);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not update the tender",
@@ -237,6 +319,10 @@ function ShortlistPanel({
         company_id: companyId,
         supplier_product_id: offerId,
       });
+      toast.success(
+        `Successfully shortlisted ${productName} to "${tender.name}"`,
+        { duration: 6000 },
+      );
       setNewName("");
       setNewClosing("");
       setCreating(false);
@@ -249,9 +335,10 @@ function ShortlistPanel({
 
   return (
     <div
+      ref={panelRef}
       role="menu"
       aria-label="Add to tender"
-      className="absolute right-0 z-50 mt-1.5 w-72 overflow-hidden rounded-xl border border-border bg-card text-left shadow-xl ring-1 ring-black/5"
+      className="w-72 overflow-hidden rounded-xl border border-border bg-card text-left shadow-xl ring-1 ring-black/5"
     >
       <div className="border-b border-border/60 px-3 py-2.5">
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -414,7 +501,112 @@ function ShortlistPanel({
           </div>
         )}
       </div>
+
+      {pendingRemoval && (
+        <RemoveConfirmDialog
+          productName={productName}
+          tenderName={pendingRemoval.name}
+          busy={busyTenderId === pendingRemoval.id}
+          onConfirm={confirmRemove}
+          onCancel={() => setPendingRemoval(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** "Are you sure?" gate in front of `confirmRemove` — a tick is instant and
+ *  forgiving, but taking a row off a tender someone else is bidding is not,
+ *  so it gets a stop the way the tender list's own delete does. */
+function RemoveConfirmDialog({
+  productName,
+  tenderName,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  productName: string;
+  tenderName: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
+      // This portals to document.body, outside the shortlist popover's own
+      // trigger/panel elements — without stopping the native event here, its
+      // useDismiss (listening on `document`) reads every click in this dialog
+      // as an outside click and closes the popover underneath it.
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Remove from tender"
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 text-left shadow-2xl"
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20">
+            <TriangleAlert className="size-4.5" strokeWidth={2.25} />
+          </span>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <h3 className="text-sm font-bold text-foreground">
+              Remove from tender?
+            </h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+              Are you sure you want to remove{" "}
+              <span className="font-semibold text-foreground">
+                {productName}
+              </span>{" "}
+              from{" "}
+              <span className="font-semibold text-foreground">
+                &quot;{tenderName}&quot;
+              </span>
+              ? Click confirm to proceed.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            disabled={busy}
+            className="h-8 text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={onConfirm}
+            disabled={busy}
+            className="h-8 gap-1.5 text-xs"
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Confirm
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

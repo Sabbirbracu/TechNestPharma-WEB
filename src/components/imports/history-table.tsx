@@ -19,6 +19,10 @@ const STATUS_STYLES: Record<ImportStatus, { label: string; className: string }> 
     uploaded: { label: "Uploaded", className: "bg-muted text-muted-foreground" },
     parsed: { label: "Parsed", className: "bg-muted text-muted-foreground" },
     previewed: {
+      label: "In preparation",
+      className: "bg-muted text-muted-foreground",
+    },
+    pending_approval: {
       label: "Awaiting approval",
       className: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     },

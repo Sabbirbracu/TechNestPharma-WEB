@@ -123,6 +123,7 @@ export function ResultCard({
           productId={product.id}
           companyId={supplier.company_id}
           offerId={supplier.offer_id}
+          productName={product.name_en}
           memberships={memberships}
           className="lg:flex-none"
         />

@@ -28,7 +28,11 @@ import type {
   OfferUpdateInput,
   Page,
   ProductCreateInput,
+  ProductDetail,
   ProductListItem,
+  ProductStats,
+  ProductSuppliers,
+  TherapeuticCategoryRef,
   ProductUpdateInput,
   ImportBatch,
   ImportField,
@@ -40,12 +44,22 @@ import type {
   SearchResults,
   SheetPreview,
   ShortlistMembership,
+  Communication,
+  CommunicationCreateInput,
+  SourcingPipeline,
+  SourcingRequestCreateInput,
+  SourcingRequestDetail,
+  SourcingRequestListItem,
+  SourcingRequestParams,
+  SourcingRequestUpdateInput,
+  SourcingStatus,
   StageInput,
   TenderCreateInput,
   TenderDetail,
   TenderItemInput,
   TenderListItem,
   TenderListParams,
+  TenderStats,
   TenderUpdateInput,
 } from "@/types/api";
 
@@ -60,6 +74,7 @@ import type {
 export const keys = {
   dashboard: ["dashboard"] as const,
   countries: ["countries"] as const,
+  therapeuticCategories: ["therapeutic-categories"] as const,
   search: (q: string) => ["search", q] as const,
   companies: {
     all: ["companies"] as const,
@@ -73,6 +88,9 @@ export const keys = {
   products: {
     all: ["products"] as const,
     list: (params: ProductListParams) => ["products", "list", params] as const,
+    detail: (id: number) => ["products", "detail", id] as const,
+    suppliers: (id: number) => ["products", "detail", id, "suppliers"] as const,
+    stats: ["products", "stats"] as const,
   },
   imports: {
     all: ["imports"] as const,
@@ -89,10 +107,17 @@ export const keys = {
     list: (params: OfferListParams) => ["offers", "list", params] as const,
     detail: (id: number) => ["offers", "detail", id] as const,
   },
+  sourcing: {
+    all: ["sourcing"] as const,
+    list: (params: SourcingRequestParams) => ["sourcing", "list", params] as const,
+    detail: (id: number) => ["sourcing", "detail", id] as const,
+    pipeline: ["sourcing", "pipeline"] as const,
+  },
   tenders: {
     all: ["tenders"] as const,
     list: (params: TenderListParams) => ["tenders", "list", params] as const,
     detail: (id: number) => ["tenders", "detail", id] as const,
+    stats: (scope?: string) => ["tenders", "stats", scope ?? null] as const,
     /** Keyed by the sorted product ids on screen, so two searches that happen
      *  to show the same products share one cache entry. */
     memberships: (productIds: number[]) =>
@@ -123,6 +148,17 @@ export function useCountries() {
     queryKey: keys.countries,
     queryFn: () => apiFetch<CountryRef[]>("/lookups/countries"),
     staleTime: 60 * 60 * 1000, // reference data; effectively static
+  });
+}
+
+/** The therapeutic axis, for the product form's class picker. Reference data,
+ *  so it is cached hard. */
+export function useTherapeuticCategories() {
+  return useQuery({
+    queryKey: keys.therapeuticCategories,
+    queryFn: () =>
+      apiFetch<TherapeuticCategoryRef[]>("/lookups/therapeutic-categories"),
+    staleTime: 60 * 60 * 1000,
   });
 }
 
@@ -173,6 +209,143 @@ export function useProducts(params: ProductListParams) {
     queryFn: () =>
       apiFetch<Page<ProductListItem>>(`/products${toQueryString(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** One product in full — synonyms, molecular formula, packaging spec. Fetched
+ *  only when a row is actually opened, so a 50-row page costs nothing extra. */
+export function useProduct(id: number | null) {
+  return useQuery({
+    queryKey: keys.products.detail(id ?? 0),
+    queryFn: () => apiFetch<ProductDetail>(`/products/${id}`),
+    enabled: id !== null && Number.isFinite(id),
+  });
+}
+
+/** Who sells this product, with each supplier's best contact route resolved
+ *  server-side. Fetched only when a product is actually opened. */
+export function useProductSuppliers(id: number | null) {
+  return useQuery({
+    queryKey: keys.products.suppliers(id ?? 0),
+    queryFn: () => apiFetch<ProductSuppliers>(`/products/${id}/suppliers`),
+    enabled: id !== null && Number.isFinite(id),
+  });
+}
+
+/** Header tile counts. Kept out of the list key on purpose: the tiles describe
+ *  the whole catalogue, so they must not refetch when a filter narrows the
+ *  table beneath them. */
+export function useProductStats() {
+  return useQuery({
+    queryKey: keys.products.stats,
+    queryFn: () => apiFetch<ProductStats>("/products/stats"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/* --- Sourcing (FR-SRC) -------------------------------------------------- */
+
+export function useSourcingRequests(params: SourcingRequestParams) {
+  return useQuery({
+    queryKey: keys.sourcing.list(params),
+    queryFn: () =>
+      apiFetch<Page<SourcingRequestListItem>>(
+        `/sourcing/requests${toQueryString(params)}`,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** One request with its timeline, communications and quotations. `null`
+ *  disables the query, so the detail panel can mount before a row is picked. */
+export function useSourcingRequest(id: number | null) {
+  return useQuery({
+    queryKey: keys.sourcing.detail(id ?? 0),
+    queryFn: () => apiFetch<SourcingRequestDetail>(`/sourcing/requests/${id}`),
+    enabled: id !== null && Number.isFinite(id),
+  });
+}
+
+/** Counts per pipeline column. Kept out of the list key: the board describes
+ *  the whole pipeline and must not shrink when a filter narrows the table. */
+export function useSourcingPipeline() {
+  return useQuery({
+    queryKey: keys.sourcing.pipeline,
+    queryFn: () => apiFetch<SourcingPipeline>("/sourcing/pipeline"),
+  });
+}
+
+export function useCreateSourcingRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SourcingRequestCreateInput) =>
+      apiFetch<SourcingRequestDetail>("/sourcing/requests", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+export function useUpdateSourcingRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...payload }: SourcingRequestUpdateInput & { id: number }) =>
+      apiFetch<SourcingRequestDetail>(`/sourcing/requests/${id}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/**
+ * Move a request along the pipeline.
+ *
+ * Its own endpoint rather than a PATCH field: a transition writes a history row
+ * and can stamp `sent_at` or `first_replied_at`, so it must not be reachable by
+ * a form that happens to include `status` in its body.
+ */
+export function useChangeSourcingStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      to_status,
+      note,
+    }: {
+      id: number;
+      to_status: SourcingStatus;
+      note?: string;
+    }) =>
+      apiFetch<SourcingRequestDetail>(`/sourcing/requests/${id}/status`, {
+        method: "POST",
+        json: { to_status, note },
+      }),
+    onSuccess: () => {
+      // The board counts move with the row, so the whole subtree refreshes.
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Log one exchange. An inbound message on a request that is still awaiting a
+ *  reply advances it server-side, so this refreshes the board too. */
+export function useLogCommunication() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CommunicationCreateInput) =>
+      apiFetch<Communication>("/sourcing/communications", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
   });
 }
 
@@ -247,9 +420,31 @@ export function useCreateProduct() {
 }
 
 export function useUpdateProduct() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...payload }: ProductUpdateInput & { id: number }) =>
       apiFetch(`/products/${id}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      // `products.all` covers the list, the detail, and the header tiles —
+      // renaming a product or clearing its CAS changes every one of them.
+      queryClient.invalidateQueries({ queryKey: keys.products.all });
+      // Search results embed the product name and CAS too.
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+  });
+}
+
+/** Soft-deletes one product (backend keeps the row, tombstoned by
+ *  `deleted_at`). Used both for the row menu's single delete and, called
+ *  once per id, the products table's bulk delete. */
+export function useDeleteProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiFetch(`/products/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.products.all });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
   });
 }
 
@@ -313,6 +508,18 @@ export function useTender(id: number) {
     queryKey: keys.tenders.detail(id),
     queryFn: () => apiFetch<TenderDetail>(`/tenders/${id}`),
     enabled: Number.isFinite(id),
+  });
+}
+
+/** The five board tiles — total plus each display bucket, each with its own
+ *  30-day trend. `scope: "mine"` narrows every bucket to the caller's own
+ *  tenders, matching the My Tenders tab. */
+export function useTenderStats(scope?: "mine") {
+  return useQuery({
+    queryKey: keys.tenders.stats(scope),
+    queryFn: () =>
+      apiFetch<TenderStats>(`/tenders/stats${toQueryString({ scope })}`),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -388,6 +595,18 @@ export function useRemoveTenderItem() {
     },
   });
 }
+
+export function useDeleteTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenderId: number) =>
+      apiFetch(`/tenders/${tenderId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
 
 /* -- Import (SRS FR-IMP, 05-architecture Part C) --------------------------
  *
@@ -599,6 +818,35 @@ export function useCreateCompany() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.companies.all });
       queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+/** Hand a checked batch to an owner for approval. Staff and owner only —
+ *  the API refuses a viewer, and the UI hides the button for them. */
+export function useSubmitImport(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ImportBatch>(`/imports/batches/${batchId}/submit`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.all });
+    },
+  });
+}
+
+/** Pull a batch back out of the approval queue to keep working on it. */
+export function useWithdrawImport(batchId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ImportBatch>(`/imports/batches/${batchId}/withdraw`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.imports.all });
     },
   });
 }

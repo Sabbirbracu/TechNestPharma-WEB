@@ -11,12 +11,15 @@ import {
   PencilLine,
   Plus,
   RefreshCw,
+  Send,
+  ShieldCheck,
   Trash2,
   Undo2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   useCommitImport,
   useDeleteImportRow,
@@ -25,8 +28,10 @@ import {
   useImportFields,
   useImportRows,
   useImportSummary,
+  useSubmitImport,
   useUndoImport,
   useUpdateImportRow,
+  useWithdrawImport,
 } from "@/lib/queries";
 import type {
   ImportField,
@@ -67,11 +72,21 @@ export function ImportPreviewGrid({ batchId }: { batchId: number }) {
   const commit = useCommitImport(batchId);
   const undo = useUndoImport(batchId);
   const discard = useDiscardImport();
+  const submit = useSubmitImport(batchId);
+  const withdraw = useWithdrawImport(batchId);
+
+  // Preparing a batch and approving it are separate acts (decision
+  // 2026-08-20). Staff stage, correct and submit; only an owner commits. The
+  // API enforces this — the UI only avoids offering a button that would 403.
+  const { user } = useAuth();
+  const canApprove = user?.role === "owner";
+  const canPrepare = user?.role === "owner" || user?.role === "staff";
 
   const status: ImportStatus | undefined = batch.data?.status;
   const isCommitted = status === "committed";
   const isRolledBack = status === "rolled_back";
-  const editable = !isCommitted && !isRolledBack;
+  const isPending = status === "pending_approval";
+  const editable = !isCommitted && !isRolledBack && canPrepare;
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setError(null);
@@ -130,6 +145,27 @@ export function ImportPreviewGrid({ batchId }: { batchId: number }) {
         </p>
       )}
 
+      {isPending && !isCommitted && (
+        <p className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {canApprove
+              ? "Submitted for your approval. Check the rows below — nothing has been written yet, and approving is what writes it."
+              : "Waiting for an owner to approve. You can still withdraw it to make more changes; editing any row withdraws it automatically."}
+          </span>
+        </p>
+      )}
+
+      {!canPrepare && !isCommitted && !isRolledBack && (
+        <p className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            You have read-only access, so this batch is shown for review but
+            cannot be edited, submitted, or committed.
+          </span>
+        </p>
+      )}
+
       {counts && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Tile label="Rows" value={counts.total} />
@@ -185,27 +221,72 @@ export function ImportPreviewGrid({ batchId }: { batchId: number }) {
                 <Trash2 />
                 Discard
               </Button>
-              <Button
-                onClick={() =>
-                  run(
-                    () => commit.mutateAsync(true),
-                    "Could not commit this batch.",
-                  )
-                }
-                disabled={commit.isPending || (counts?.total ?? 0) === 0}
-              >
-                {commit.isPending ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Committing…
-                  </>
-                ) : (
-                  <>
-                    <Check />
-                    Commit {counts?.valid ?? 0} rows
-                  </>
-                )}
-              </Button>
+
+              {isPending && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    run(
+                      () => withdraw.mutateAsync(),
+                      "Could not withdraw this batch.",
+                    )
+                  }
+                  disabled={withdraw.isPending}
+                >
+                  <Undo2 />
+                  Withdraw
+                </Button>
+              )}
+
+              {/* Staff finish here: they hand the batch over rather than
+                  writing it. An owner sees the approve button instead. */}
+              {!canApprove && !isPending && (
+                <Button
+                  onClick={() =>
+                    run(
+                      () => submit.mutateAsync(),
+                      "Could not submit this batch.",
+                    )
+                  }
+                  disabled={submit.isPending || (counts?.total ?? 0) === 0}
+                >
+                  {submit.isPending ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    <>
+                      <Send />
+                      Submit for approval
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {canApprove && (
+                <Button
+                  onClick={() =>
+                    run(
+                      () => commit.mutateAsync(true),
+                      "Could not commit this batch.",
+                    )
+                  }
+                  disabled={commit.isPending || (counts?.total ?? 0) === 0}
+                >
+                  {commit.isPending ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Writing…
+                    </>
+                  ) : (
+                    <>
+                      {isPending ? <ShieldCheck /> : <Check />}
+                      {isPending ? "Approve" : "Commit"} {counts?.valid ?? 0} rows
+                    </>
+                  )}
+                </Button>
+              )}
             </>
           )}
           {isCommitted && (
