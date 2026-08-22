@@ -116,6 +116,7 @@ export function ProductsTable() {
   const params: ProductListParams = {
     q: filters.q || undefined,
     material_type: filters.materialType || undefined,
+    pkg_type: filters.pkgType || undefined,
     is_packaging:
       filters.isPackaging === "" ? undefined : filters.isPackaging === "true",
     sort: sortField,
@@ -322,6 +323,7 @@ export function ProductsTable() {
             filtered={
               filters.q !== "" ||
               filters.materialType !== "" ||
+              filters.pkgType !== "" ||
               filters.isPackaging !== ""
             }
             onReset={() => changeFilters(EMPTY_FILTERS)}
@@ -500,7 +502,7 @@ function ProductTableView({
                 )}
               </button>
             </th>
-            <HeaderCell>Category</HeaderCell>
+            <HeaderCell>Material Type</HeaderCell>
             <HeaderCell>CAS No.</HeaderCell>
             <HeaderCell>Country</HeaderCell>
             <HeaderCell>Applications</HeaderCell>

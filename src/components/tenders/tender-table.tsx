@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -13,13 +14,17 @@ import {
   Loader2,
   MoreVertical,
   Trash2,
+  X,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import {
   DropdownMenu,
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDeleteTender } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import {
@@ -56,6 +61,67 @@ export function TenderTable({
   onExport: () => void;
   exporting: boolean;
 }) {
+  // Held here rather than lifted to the workspace: bulk delete is entirely a
+  // table concern (it doesn't touch filters, sort or paging), and the ids
+  // stay meaningful across a filter/sort change since they're never scoped to
+  // "the current page" — clearing only happens once the delete goes through.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const deleteTender = useDeleteTender();
+
+  function toggleRow(id: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const pageIds = rows.map((row) => row.id);
+  const selectedOnPage = pageIds.filter((id) => selected.has(id));
+  const allOnPageSelected =
+    pageIds.length > 0 && selectedOnPage.length === pageIds.length;
+
+  function toggleAllOnPage() {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  /** One DELETE per id (there is no bulk endpoint) — `allSettled` so one bad
+   *  id in a batch doesn't stop the rest from going through. */
+  async function bulkDelete() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const label = `${ids.length} tender${ids.length === 1 ? "" : "s"}`;
+
+    setDeleting(true);
+    const results = await Promise.allSettled(
+      ids.map((id) => deleteTender.mutateAsync(id)),
+    );
+    const failed = results.filter((result) => result.status === "rejected").length;
+    const succeeded = results.length - failed;
+
+    if (failed === 0) {
+      toast.success(`Deleted ${label}`, { duration: 6000 });
+    } else if (succeeded === 0) {
+      toast.error(`Could not delete ${label}`, { duration: 6000 });
+    } else {
+      toast.error(
+        `Deleted ${succeeded} of ${results.length} tenders — ${failed} failed`,
+        { duration: 6000 },
+      );
+    }
+    setSelected(new Set());
+    setDeleting(false);
+    setConfirmingBulk(false);
+  }
+
   return (
     <>
       <div className="flex flex-col gap-3 border-b border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
@@ -115,6 +181,15 @@ export function TenderTable({
         </div>
       </div>
 
+      {selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          onClear={() => setSelected(new Set())}
+          onDelete={() => setConfirmingBulk(true)}
+          deleting={deleting}
+        />
+      )}
+
       {error ? (
         <TableError error={error} />
       ) : isFetching && rows.length === 0 ? (
@@ -128,27 +203,84 @@ export function TenderTable({
             isFetching && "pointer-events-none opacity-60",
           )}
         >
-          {view === "list" ? <ListView rows={rows} /> : <CardView rows={rows} />}
+          {view === "list" ? (
+            <ListView
+              rows={rows}
+              selected={selected}
+              onToggleRow={toggleRow}
+              allOnPageSelected={allOnPageSelected}
+              someOnPageSelected={selectedOnPage.length > 0 && !allOnPageSelected}
+              onToggleAll={toggleAllOnPage}
+            />
+          ) : (
+            <CardView rows={rows} />
+          )}
         </div>
+      )}
+
+      {confirmingBulk && (
+        <ConfirmDialog
+          title="Delete these tenders?"
+          description={
+            <>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-foreground">
+                {selected.size} tender{selected.size === 1 ? "" : "s"}
+              </span>
+              ? This cannot be undone from here.
+            </>
+          }
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={bulkDelete}
+          onCancel={() => setConfirmingBulk(false)}
+        />
       )}
     </>
   );
 }
 
-function ListView({ rows }: { rows: TenderListItem[] }) {
+function ListView({
+  rows,
+  selected,
+  onToggleRow,
+  allOnPageSelected,
+  someOnPageSelected,
+  onToggleAll,
+}: {
+  rows: TenderListItem[];
+  selected: Set<number>;
+  onToggleRow: (id: number) => void;
+  allOnPageSelected: boolean;
+  someOnPageSelected: boolean;
+  onToggleAll: () => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
         <colgroup>
-          <col className="w-[32%]" />
-          <col className="w-[26%]" />
-          <col className="w-[160px]" />
-          <col className="w-[140px]" />
-          <col className="w-[190px]" />
+          <col className="w-11" />
+          <col className="w-[30%]" />
+          <col className="w-[24%]" />
+          <col className="w-[150px]" />
+          <col className="w-[130px]" />
+          <col className="w-[180px]" />
           <col className="w-[64px]" />
         </colgroup>
         <thead>
           <tr className="border-b border-border/60 bg-secondary/40">
+            <th scope="col" className="px-4 py-3.5">
+              <Checkbox
+                checked={allOnPageSelected}
+                indeterminate={someOnPageSelected}
+                onChange={onToggleAll}
+                aria-label={
+                  allOnPageSelected
+                    ? "Clear selection on this page"
+                    : "Select every tender on this page"
+                }
+              />
+            </th>
             <HeaderCell>Tender Title &amp; Reference</HeaderCell>
             <HeaderCell>Authority</HeaderCell>
             <HeaderCell>Closing Date</HeaderCell>
@@ -159,7 +291,12 @@ function ListView({ rows }: { rows: TenderListItem[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <Row key={row.id} row={row} />
+            <Row
+              key={row.id}
+              row={row}
+              selected={selected.has(row.id)}
+              onToggleSelected={() => onToggleRow(row.id)}
+            />
           ))}
         </tbody>
       </table>
@@ -167,12 +304,32 @@ function ListView({ rows }: { rows: TenderListItem[] }) {
   );
 }
 
-function Row({ row }: { row: TenderListItem }) {
+function Row({
+  row,
+  selected,
+  onToggleSelected,
+}: {
+  row: TenderListItem;
+  selected: boolean;
+  onToggleSelected: () => void;
+}) {
   const closing = closingLabel(row.closing_date);
   const pct = row.product_count > 0 ? (row.sourced_count / row.product_count) * 100 : 0;
 
   return (
-    <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-accent/40">
+    <tr
+      className={cn(
+        "border-b border-border/40 transition-colors last:border-0",
+        selected ? "bg-primary/[0.04]" : "hover:bg-accent/40",
+      )}
+    >
+      <td className="px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+        <Checkbox
+          checked={selected}
+          onChange={onToggleSelected}
+          aria-label={`Select ${row.name}`}
+        />
+      </td>
       <td className="overflow-hidden px-4 py-3.5">
         <Link href={`/tenders/${row.id}`} className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tile-blue-bg text-tile-blue ring-1 ring-inset ring-tile-blue/15">
@@ -346,47 +503,120 @@ function CardView({ rows }: { rows: TenderListItem[] }) {
 
 function RowMenu({ row }: { row: TenderListItem }) {
   const deleteTender = useDeleteTender();
+  const [confirming, setConfirming] = useState(false);
 
   return (
-    <DropdownMenu
-      trigger={(props) => (
-        <button
+    <>
+      <DropdownMenu
+        trigger={(props) => (
+          <button
+            type="button"
+            {...props}
+            aria-label={`Actions for ${row.name}`}
+            className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <MoreVertical className="size-4" strokeWidth={2.25} />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <DropdownMenuItem
+              onClick={() => {
+                navigator.clipboard?.writeText(row.reference_no ?? row.name);
+                close();
+              }}
+            >
+              <Copy />
+              Copy reference
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              destructive
+              onClick={() => {
+                close();
+                setConfirming(true);
+              }}
+            >
+              <Trash2 />
+              Delete tender
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenu>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Delete this tender?"
+          description={
+            <>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-foreground">
+                &quot;{row.name}&quot;
+              </span>
+              ? This cannot be undone from here.
+            </>
+          }
+          confirmLabel="Delete"
+          busy={deleteTender.isPending}
+          onConfirm={() => {
+            deleteTender.mutate(row.id, {
+              onSettled: () => setConfirming(false),
+            });
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function BulkBar({
+  count,
+  onClear,
+  onDelete,
+  deleting,
+}: {
+  count: number;
+  onClear: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-5 py-3">
+      <p className="text-sm font-semibold text-foreground">
+        <span className="tabular-nums">{count}</span> tender
+        {count === 1 ? "" : "s"} selected
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
           type="button"
-          {...props}
-          aria-label={`Actions for ${row.name}`}
-          className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          variant="destructive"
+          size="sm"
+          onClick={onDelete}
+          disabled={deleting}
+          className="h-8"
         >
-          <MoreVertical className="size-4" strokeWidth={2.25} />
-        </button>
-      )}
-    >
-      {(close) => (
-        <>
-          <DropdownMenuItem
-            onClick={() => {
-              navigator.clipboard?.writeText(row.reference_no ?? row.name);
-              close();
-            }}
-          >
-            <Copy />
-            Copy reference
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            destructive
-            onClick={() => {
-              close();
-              if (confirm(`Delete "${row.name}"? This cannot be undone from here.`)) {
-                deleteTender.mutate(row.id);
-              }
-            }}
-          >
-            <Trash2 />
-            Delete tender
-          </DropdownMenuItem>
-        </>
-      )}
-    </DropdownMenu>
+          {deleting ? (
+            <Loader2 className="animate-spin" strokeWidth={2.25} />
+          ) : (
+            <Trash2 strokeWidth={2.25} />
+          )}
+          Delete selected
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onClear}
+          disabled={deleting}
+          className="h-8"
+        >
+          <X strokeWidth={2.25} />
+          Clear
+        </Button>
+      </div>
+    </div>
   );
 }
 

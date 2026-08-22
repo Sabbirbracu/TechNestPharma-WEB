@@ -21,7 +21,7 @@ const COLUMNS = [
   "Product Name",
   "Chinese Name",
   "Variant",
-  "Category",
+  "Material Type",
   "CAS No.",
   "CAS Verified",
   "Pharmacopoeia",

@@ -5,23 +5,34 @@ import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { CATEGORY_FILTER_OPTIONS } from "./product-taxonomy";
-import type { MaterialType } from "@/types/domain";
+import { CATEGORY_FILTER_OPTIONS, PACKAGING_TYPE_OPTIONS } from "./product-taxonomy";
+import type { MaterialType, PackagingType } from "@/types/domain";
 
 /** The committed filter state the table queries on. */
 export type ProductFilterValues = {
   q: string;
-  /** Any supplier offers the product as this material type. */
-  materialType: MaterialType | "";
   /** "" = both. Packaging is identified by a spec row, not a column (D14). */
   isPackaging: "" | "true" | "false";
+  /** Meaningful only when isPackaging is not "true" — the chemical axis. */
+  materialType: MaterialType | "";
+  /** Meaningful only when isPackaging is "true" — the packaging axis. */
+  pkgType: PackagingType | "";
 };
 
 export const EMPTY_FILTERS: ProductFilterValues = {
   q: "",
-  materialType: "",
   isPackaging: "",
+  materialType: "",
+  pkgType: "",
 };
+
+/** Packaging already has its own authoritative Product Type toggle, backed by
+ *  the packaging_spec row rather than an offer's self-reported material type
+ *  (D14) — listing it again here would be the same question asked twice, and
+ *  less reliably the second time. */
+const MATERIAL_TYPE_OPTIONS = CATEGORY_FILTER_OPTIONS.filter(
+  (option) => option.value !== "packaging_material",
+);
 
 /**
  * The filter bar.
@@ -40,14 +51,19 @@ export function ProductFilters({
   onChange: (next: ProductFilterValues) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  const isPackagingDraft = draft.isPackaging === "true";
 
   const dirty =
     draft.q !== value.q ||
+    draft.isPackaging !== value.isPackaging ||
     draft.materialType !== value.materialType ||
-    draft.isPackaging !== value.isPackaging;
+    draft.pkgType !== value.pkgType;
 
   const active =
-    value.q !== "" || value.materialType !== "" || value.isPackaging !== "";
+    value.q !== "" ||
+    value.isPackaging !== "" ||
+    value.materialType !== "" ||
+    value.pkgType !== "";
 
   const apply = () => onChange(draft);
 
@@ -80,26 +96,6 @@ export function ProductFilters({
           </kbd>
         </div>
 
-        <Field label="Category" htmlFor="product-category">
-          <Select
-            id="product-category"
-            value={draft.materialType}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                materialType: event.target.value as MaterialType | "",
-              })
-            }
-          >
-            <option value="">All Categories</option>
-            {CATEGORY_FILTER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
         <Field label="Product Type" htmlFor="product-type">
           <Select
             id="product-type"
@@ -108,6 +104,10 @@ export function ProductFilters({
               setDraft({
                 ...draft,
                 isPackaging: event.target.value as ProductFilterValues["isPackaging"],
+                // The axis below flips meaning with this choice — a stale pick
+                // from the other one must not ride along silently.
+                materialType: "",
+                pkgType: "",
               })
             }
           >
@@ -116,6 +116,48 @@ export function ProductFilters({
             <option value="true">Packaging Materials</option>
           </Select>
         </Field>
+
+        {isPackagingDraft ? (
+          <Field label="Packaging Type" htmlFor="product-packaging-type">
+            <Select
+              id="product-packaging-type"
+              value={draft.pkgType}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  pkgType: event.target.value as PackagingType | "",
+                })
+              }
+            >
+              <option value="">All Packaging</option>
+              {PACKAGING_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <Field label="Material Type" htmlFor="product-material-type">
+            <Select
+              id="product-material-type"
+              value={draft.materialType}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  materialType: event.target.value as MaterialType | "",
+                })
+              }
+            >
+              <option value="">All Types</option>
+              {MATERIAL_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         <div className="flex items-center gap-2.5">
           <Button

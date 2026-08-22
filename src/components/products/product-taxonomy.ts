@@ -9,7 +9,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
-import type { ApplicationType, MaterialType } from "@/types/domain";
+import type { ApplicationType, MaterialType, PackagingType } from "@/types/domain";
 
 /**
  * How a material type presents itself: the label a user reads, and the colour
@@ -119,6 +119,20 @@ export const CATEGORY_FILTER_OPTIONS: { value: MaterialType; label: string }[] =
   { value: "enzyme", label: "Enzymes" },
   { value: "cosmetic_ingredient", label: "Cosmetic Ingredients" },
   { value: "finished_product", label: "Finished Products" },
+  { value: "other", label: "Other" },
+];
+
+/** The seven packaging families (D14, `packaging_spec.pkg_type`) — the filter
+ *  a "Packaging Materials" product type narrows to, in place of the chemical
+ *  material types above. */
+export const PACKAGING_TYPE_OPTIONS: { value: PackagingType; label: string }[] = [
+  { value: "rubber_stopper", label: "Rubber Stopper" },
+  { value: "flip_off_seal", label: "Flip-off Seal" },
+  { value: "shrink_film", label: "Shrink Film" },
+  { value: "eye_container", label: "Eye Container" },
+  { value: "aluminium_foil", label: "Aluminium Foil" },
+  { value: "pvc_film", label: "PVC Film" },
+  { value: "sterilized_cotton", label: "Sterilized Cotton" },
   { value: "other", label: "Other" },
 ];
 

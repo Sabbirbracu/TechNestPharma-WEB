@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Bookmark,
@@ -11,7 +10,6 @@ import {
   Loader2,
   Plus,
   Search,
-  TriangleAlert,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -19,6 +17,7 @@ import {
   useDismiss,
 } from "@/components/ui/anchored-popover";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -76,6 +75,13 @@ export type ShortlistMenuProps = {
    *  `icon` the bare bookmark that sits in a table's Actions column — no label,
    *  because there the column header is the label. */
   variant?: "full" | "compact" | "icon";
+  /** `dense` (default) is the compact list-row look every other caller uses.
+   *  `default` matches the shared Button component's own default size, for a
+   *  footer that pairs this trigger next to a plain default-sized Button —
+   *  e.g. the product details modal, where "Shortlist" and "Edit product"
+   *  need to read as two equally-weighted actions, not one dominant and one
+   *  squeezed. */
+  size?: "dense" | "default";
   className?: string;
 };
 
@@ -86,6 +92,7 @@ export function ShortlistMenu({
   productName,
   memberships,
   variant = "full",
+  size = "dense",
   className,
 }: ShortlistMenuProps) {
   const [open, setOpen] = useState(false);
@@ -145,7 +152,9 @@ export function ShortlistMenu({
               : memberships.map((m) => m.tender_name).join(", ")
           }
           className={cn(
-            "h-8 w-full gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[11px]",
+            size === "default"
+              ? "h-10 w-full gap-2 whitespace-nowrap rounded-xl px-5 text-sm"
+              : "h-8 w-full gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[11px]",
             variant === "full" ? "flex-1 lg:flex-none" : "",
           )}
         >
@@ -503,110 +512,27 @@ function ShortlistPanel({
       </div>
 
       {pendingRemoval && (
-        <RemoveConfirmDialog
-          productName={productName}
-          tenderName={pendingRemoval.name}
-          busy={busyTenderId === pendingRemoval.id}
-          onConfirm={confirmRemove}
-          onCancel={() => setPendingRemoval(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/** "Are you sure?" gate in front of `confirmRemove` — a tick is instant and
- *  forgiving, but taking a row off a tender someone else is bidding is not,
- *  so it gets a stop the way the tender list's own delete does. */
-function RemoveConfirmDialog({
-  productName,
-  tenderName,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  productName: string;
-  tenderName: string;
-  busy: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
-
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
-      // This portals to document.body, outside the shortlist popover's own
-      // trigger/panel elements — without stopping the native event here, its
-      // useDismiss (listening on `document`) reads every click in this dialog
-      // as an outside click and closes the popover underneath it.
-      onPointerDown={(event) => event.stopPropagation()}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-label="Remove from tender"
-        className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 text-left shadow-2xl"
-      >
-        <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20">
-            <TriangleAlert className="size-4.5" strokeWidth={2.25} />
-          </span>
-          <div className="min-w-0 flex-1 pt-0.5">
-            <h3 className="text-sm font-bold text-foreground">
-              Remove from tender?
-            </h3>
-            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+        <ConfirmDialog
+          title="Remove from tender?"
+          description={
+            <>
               Are you sure you want to remove{" "}
               <span className="font-semibold text-foreground">
                 {productName}
               </span>{" "}
               from{" "}
               <span className="font-semibold text-foreground">
-                &quot;{tenderName}&quot;
+                &quot;{pendingRemoval.name}&quot;
               </span>
               ? Click confirm to proceed.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onCancel}
-            disabled={busy}
-            className="h-8 text-xs"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={onConfirm}
-            disabled={busy}
-            className="h-8 gap-1.5 text-xs"
-          >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Confirm
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+            </>
+          }
+          busy={busyTenderId === pendingRemoval.id}
+          onConfirm={confirmRemove}
+          onCancel={() => setPendingRemoval(null)}
+        />
+      )}
+    </div>
   );
 }
 

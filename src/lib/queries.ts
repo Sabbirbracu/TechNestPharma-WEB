@@ -61,6 +61,7 @@ import type {
   TenderListParams,
   TenderStats,
   TenderUpdateInput,
+  ActivityEntry,
 } from "@/types/api";
 
 /**
@@ -74,6 +75,7 @@ import type {
 export const keys = {
   dashboard: ["dashboard"] as const,
   countries: ["countries"] as const,
+  activity: (limit: number) => ["activity", limit] as const,
   therapeuticCategories: ["therapeutic-categories"] as const,
   search: (q: string) => ["search", q] as const,
   companies: {
@@ -604,6 +606,17 @@ export function useDeleteTender() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.tenders.all });
     },
+  });
+}
+
+/** The append-only audit trail (FR-ADM-02), scoped to tenders/tender
+ *  items/sourcing/quotations server-side — see `ActivityFeedService`. Callers
+ *  that want "this tender's activity" filter client-side on `entry.href`,
+ *  since the feed has no per-entity filter of its own yet. */
+export function useRecentActivity(limit = 8) {
+  return useQuery({
+    queryKey: keys.activity(limit),
+    queryFn: () => apiFetch<ActivityEntry[]>(`/activity?limit=${limit}`),
   });
 }
 

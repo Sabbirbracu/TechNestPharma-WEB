@@ -964,6 +964,17 @@ export type CommunicationCreateInput = {
  * Activity feed (SRS FR-ADM-02)
  * ---------------------------------------------------------------------- */
 
+export type ActivityAction =
+  | "create"
+  | "update"
+  | "delete"
+  | "login"
+  | "logout"
+  | "upload"
+  | "download"
+  | "export"
+  | "import";
+
 export type ActivityEntry = {
   id: number;
   occurred_at: string;
@@ -971,4 +982,7 @@ export type ActivityEntry = {
   entity_type: string;
   entity_id: number | null;
   href: string | null;
+  action: ActivityAction;
+  user_id: number | null;
+  user_name: string | null;
 };

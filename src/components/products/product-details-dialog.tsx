@@ -19,13 +19,7 @@ import {
 } from "@/lib/queries";
 import { ProductFormDialog } from "./product-form-dialog";
 import { cn } from "@/lib/utils";
-import {
-  CATEGORY_STYLES,
-  applicationLabel,
-  flagEmoji,
-  primaryCategory,
-} from "./product-taxonomy";
-import type { MaterialType } from "@/types/domain";
+import { applicationLabel, flagEmoji, primaryCategory } from "./product-taxonomy";
 import type { ProductListItem, SearchSupplier } from "@/types/api";
 
 /**
@@ -86,7 +80,6 @@ export function ProductDetailsDialog({
       specifications: distinct(suppliers.map((s) => s.specification)),
       packings: distinct(suppliers.map((s) => s.packing)),
       qualifications: distinct(suppliers.map((s) => s.qualification)),
-      offeredAs: distinct(suppliers.map((s) => s.material_type)),
     }),
     [suppliers],
   );
@@ -181,12 +174,6 @@ export function ProductDetailsDialog({
             )}
 
             <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-              <Detail label="Category">
-                <Badge className={cn("border-transparent", category.badge)}>
-                  {category.label}
-                </Badge>
-              </Detail>
-
               <Detail label="Therapeutic class">
                 {product.therapeutic_classes.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
@@ -215,26 +202,10 @@ export function ProductDetailsDialog({
                 <ValueOrNa value={product.facets.compendia.join(", ")} />
               </Detail>
 
-              <Detail label="Offered as">
-                {suppliersPending ? (
-                  <Skeleton />
-                ) : offerFacts.offeredAs.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {offerFacts.offeredAs.map((type) => (
-                      <Badge
-                        key={type}
-                        className={cn(
-                          "border-transparent",
-                          CATEGORY_STYLES[type as MaterialType]?.badge ?? category.badge,
-                        )}
-                      >
-                        {CATEGORY_STYLES[type as MaterialType]?.label ?? type}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <NotAvailable />
-                )}
+              <Detail label="Material Type">
+                <Badge className={cn("border-transparent", category.badge)}>
+                  {category.label}
+                </Badge>
               </Detail>
 
               <Detail label="Applications">
@@ -364,9 +335,10 @@ export function ProductDetailsDialog({
             productName={product.name_en}
             memberships={productMemberships}
             variant="compact"
+            size="default"
             className="w-40"
           />
-          <Button type="button" onClick={() => setEditing(true)}>
+          <Button type="button" onClick={() => setEditing(true)} className="w-40">
             <Pencil strokeWidth={2.25} />
             Edit product
           </Button>
