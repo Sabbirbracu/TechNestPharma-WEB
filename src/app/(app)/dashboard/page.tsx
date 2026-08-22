@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
-import { TrendingUp, Activity } from "lucide-react";
+import { Activity } from "lucide-react";
 
 export const metadata: Metadata = { title: "Dashboard" };
 

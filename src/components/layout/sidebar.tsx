@@ -46,12 +46,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Link>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
-        {NAV_SECTIONS.map((section, sectionIndex) => (
+        {NAV_SECTIONS.map((section) => (
           <div key={section.label} className="space-y-1.5">
             <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
               {section.label}
             </p>
-            {section.items.map((item, itemIndex) => {
+            {section.items.map((item) => {
               const active =
                 pathname === item.href ||
                 pathname.startsWith(`${item.href}/`);

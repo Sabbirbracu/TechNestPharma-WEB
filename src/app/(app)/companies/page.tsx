@@ -26,10 +26,7 @@ export default function CompaniesPage() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">
-          {/* Reads ?new=1 from the URL, so it needs a Suspense boundary. */}
-          <Suspense fallback={null}>
-            <NewCompanyButton />
-          </Suspense>
+          <NewCompanyButton />
           <CompanyExportButton />
         </div>
       </div>
