@@ -13,6 +13,7 @@ import type {
   CompanyDetail,
   CompanyListItem,
   CompanyListParams,
+  CompanyStats,
   CompanyUpdateInput,
   ContactCreateInput,
   ContactListItem,
@@ -82,6 +83,7 @@ export const keys = {
     all: ["companies"] as const,
     list: (params: CompanyListParams) => ["companies", "list", params] as const,
     detail: (id: number) => ["companies", "detail", id] as const,
+    stats: ["companies", "stats"] as const,
   },
   contacts: {
     all: ["contacts"] as const,
@@ -193,6 +195,13 @@ export function useCompany(id: number) {
     queryKey: keys.companies.detail(id),
     queryFn: () => apiFetch<CompanyDetail>(`/companies/${id}`),
     enabled: Number.isFinite(id),
+  });
+}
+
+export function useCompanyStats() {
+  return useQuery({
+    queryKey: keys.companies.stats,
+    queryFn: () => apiFetch<CompanyStats>("/companies/stats"),
   });
 }
 
@@ -404,6 +413,17 @@ export function useUpdateCompany(companyId: number) {
       apiFetch(`/companies/${companyId}`, { method: "PATCH", json: payload }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.companies.all });
+    },
+  });
+}
+
+export function useDeleteCompany() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (companyId: number) =>
+      apiFetch(`/companies/${companyId}`, { method: "DELETE" }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.companies.all });
     },
   });

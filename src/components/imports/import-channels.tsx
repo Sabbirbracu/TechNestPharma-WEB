@@ -97,7 +97,7 @@ export function ImportChannels() {
           title="Manual entry"
           body="Add one record by hand, or work with the leaflet beside the form. Writes straight through — no staging, no preview, validation as you type."
           cta="Start entry"
-          onClick={() => router.push("/companies?new=1")}
+          onClick={() => router.push("/products/new")}
         />
         <ChannelCard
           icon={FileSpreadsheet}

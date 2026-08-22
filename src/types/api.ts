@@ -47,6 +47,20 @@ export type CompanyListItem = {
   website: string | null;
   is_watchlisted: boolean;
   country: CountryRef | null;
+  /** A departmental email and a contact's phone/mobile — batch-looked-up
+   *  alongside the row, not columns on the company itself. Either can be
+   *  null when nothing is on file yet. */
+  email: string | null;
+  phone: string | null;
+};
+
+export type CompanyStats = {
+  total: number;
+  active: number;
+  /** `manufacturer` + `manufacturer_trader` vs `trader` + `agent`. */
+  manufacturers: number;
+  traders_agents: number;
+  country_count: number;
 };
 
 /** A contact as embedded on the company detail page, channels included. */

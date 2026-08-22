@@ -512,14 +512,8 @@ function ProductTableView({
         </thead>
         <tbody>
           {rows.map((row) => {
-            // Defensive check for missing facets data
-            if (!row.facets) {
-              console.warn("Product row missing facets:", row);
-              return null;
-            }
-
             const category = primaryCategory(
-              row.facets.material_types,
+              row.facets?.material_types ?? [],
               row.is_packaging,
             );
             const Icon = category.icon;
@@ -660,14 +654,8 @@ function ProductCardView({
   return (
     <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
       {rows.map((row) => {
-        // Defensive check for missing facets data
-        if (!row.facets) {
-          console.warn("Product row missing facets:", row);
-          return null;
-        }
-
         const category = primaryCategory(
-          row.facets.material_types,
+          row.facets?.material_types ?? [],
           row.is_packaging,
         );
         const Icon = category.icon;
