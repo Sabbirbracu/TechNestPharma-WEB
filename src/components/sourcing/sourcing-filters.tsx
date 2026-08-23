@@ -54,7 +54,7 @@ export function SourcingFilters({
               if (event.key === "Enter") apply();
             }}
             placeholder="Search by product, supplier, CAS…"
-            aria-label="Search sourcing requests"
+            aria-label="Search sourcing enquiries"
             className="pr-10"
           />
           <Search
@@ -75,7 +75,7 @@ export function SourcingFilters({
               })
             }
           >
-            <option value="">All Requests</option>
+            <option value="">All Enquiries</option>
             <option value="false">Tender-backed</option>
             <option value="true">Speculative</option>
           </Select>

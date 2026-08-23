@@ -65,7 +65,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
   },
   {
     key: "replied",
-    label: "Replied",
+    label: "Response Received",
     icon: MessageSquare,
     statuses: ["replied"],
     tile: "bg-tile-green-bg text-tile-green ring-tile-green/15",
@@ -117,7 +117,7 @@ export const STATUS_STYLES: Record<SourcingStatus, StatusStyle> = {
     dot: "bg-tile-blue",
   },
   replied: {
-    label: "Replied",
+    label: "Response Received",
     badge: "bg-tile-green-bg text-tile-green ring-tile-green/20",
     dot: "bg-tile-green",
   },
@@ -188,7 +188,7 @@ export function referenceOf(request: {
   created_at: string;
 }): string {
   const year = new Date(request.created_at).getFullYear();
-  return `SR-${year}-${String(request.id).padStart(3, "0")}`;
+  return `SE-${year}-${String(request.id).padStart(3, "0")}`;
 }
 
 /** "in 3 days", "today", "5 days overdue" — the phrasing the follow-up column

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -46,7 +47,6 @@ import {
   closingLabel,
 } from "@/components/tenders/tender-status";
 import {
-  useCreateSourcingRequest,
   useRecentActivity,
   useRemoveTenderItem,
   useDeleteTender,
@@ -56,9 +56,12 @@ import {
 } from "@/lib/queries";
 import { MATERIAL_TYPE_LABEL, flagFor } from "@/lib/search-facets";
 import { cn } from "@/lib/utils";
+import { STATUS_STYLES } from "@/components/sourcing/sourcing-taxonomy";
+import { StartEnquiryDialog, type EnquiryTarget } from "@/components/tenders/start-enquiry-dialog";
 import type {
   ActivityAction,
   ActivityEntry,
+  SourcingStatus,
   TenderAuthorityType,
   TenderItem,
   TenderStatus,
@@ -494,21 +497,21 @@ function ShortlistedProductsPanel({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
 
-  // Every sourcing request already open against this tender, so the "Start
-  // Sourcing" action can skip suppliers that already have one instead of
-  // creating a duplicate inquiry. 100 is `/sourcing/requests`' own page-size
-  // ceiling (settings.max_page_size) — this table's own PAGE_SIZES tops out
-  // higher, so it can't be reused here.
+  // Every sourcing enquiry already open against this tender, so a supplier's
+  // row can show its real status instead of a plain yes/no, and "Start
+  // Enquiry" can skip anyone already contacted. 100 is `/sourcing/requests`'
+  // own page-size ceiling (settings.max_page_size) — this table's own
+  // PAGE_SIZES tops out higher, so it can't be reused here.
   const { data: sourcingData } = useSourcingRequests({
     tender_id: tenderId,
     size: 100,
   });
-  const sourcedKeys = useMemo(() => {
-    const keys = new Set<string>();
+  const sourcedStatus = useMemo(() => {
+    const map = new Map<string, SourcingStatus>();
     for (const request of sourcingData?.items ?? []) {
-      keys.add(sourcingKey(request.product.id, request.company.id));
+      map.set(sourcingKey(request.product.id, request.company.id), request.status);
     }
-    return keys;
+    return map;
   }, [sourcingData]);
 
   const suppliers = useMemo(() => {
@@ -608,7 +611,7 @@ function ShortlistedProductsPanel({
         </p>
       ) : (
         <>
-          <ShortlistTable groups={pageGroups} tenderId={tenderId} sourcedKeys={sourcedKeys} />
+          <ShortlistTable groups={pageGroups} tenderId={tenderId} sourcedStatus={sourcedStatus} />
           <ResultsPagination
             page={page}
             pageCount={pageCount}
@@ -630,19 +633,19 @@ function ShortlistedProductsPanel({
 function ShortlistTable({
   groups,
   tenderId,
-  sourcedKeys,
+  sourcedStatus,
 }: {
   groups: ProductGroupData[];
   tenderId: number;
-  sourcedKeys: Set<string>;
+  sourcedStatus: Map<string, SourcingStatus>;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border/60">
-      <table className="w-full min-w-[520px] table-fixed border-collapse text-sm">
+      <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
         <colgroup>
-          <col className="w-[55%]" />
-          <col className="w-[260px]" />
-          <col className="w-14" />
+          <col className="w-[42%]" />
+          <col className="w-[200px]" />
+          <col className="w-[170px]" />
         </colgroup>
         <thead>
           <tr className="border-b border-border/60 bg-secondary/40">
@@ -658,7 +661,7 @@ function ShortlistTable({
               group={group}
               tenderId={tenderId}
               isLastGroup={groupIndex === groups.length - 1}
-              sourcedKeys={sourcedKeys}
+              sourcedStatus={sourcedStatus}
             />
           ))}
         </tbody>
@@ -674,84 +677,63 @@ function ShortlistTable({
  *
  *  Dividers get two different weights so the eye can tell "another supplier,
  *  same product" from "next product": a light dashed line between rows that
- *  share a product cell, a solid one where a new product starts. */
+ *  share a product cell, a solid one where a new product starts.
+ *
+ *  Deciding who to contact happens per supplier (or a chosen few, via the
+ *  checkboxes) — never all of them in one click. A tender shortlisting four
+ *  suppliers for the same product does not mean four enquiries should go out
+ *  the moment someone glances at the row. */
 function ProductRows({
   group,
   tenderId,
   isLastGroup,
-  sourcedKeys,
+  sourcedStatus,
 }: {
   group: ProductGroupData;
   tenderId: number;
   isLastGroup: boolean;
-  sourcedKeys: Set<string>;
+  sourcedStatus: Map<string, SourcingStatus>;
 }) {
   const removeItem = useRemoveTenderItem();
-  const createSourcing = useCreateSourcingRequest();
   const router = useRouter();
-  const [startingSourcing, setStartingSourcing] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [dialogTargets, setDialogTargets] = useState<EnquiryTarget[] | null>(null);
   const materialTypes = new Set(group.items.map((item) => item.material_type).filter(Boolean));
 
-  const withSupplier = group.items.filter(
-    (item): item is TenderItem & { company_id: number } => item.company_id !== null,
-  );
-  const notYetSourced = withSupplier.filter(
-    (item) => !sourcedKeys.has(sourcingKey(group.productId, item.company_id)),
-  );
-
-  /** One `POST /sourcing/requests` per supplier still missing one — there is
-   *  no bulk endpoint, so this fans out the same way bulk delete does
-   *  elsewhere in the app. Suppliers that already have a request are left
-   *  alone, so a second click never files a duplicate inquiry. */
-  async function startSourcing() {
-    if (notYetSourced.length === 0) return;
-    setStartingSourcing(true);
-    const results = await Promise.allSettled(
-      notYetSourced.map((item) =>
-        createSourcing.mutateAsync({
-          product_id: group.productId,
-          company_id: item.company_id,
-          tender_id: tenderId,
-          supplier_product_id: item.supplier_product_id,
-          required_quantity: item.quantity,
-          quantity_unit: item.quantity_unit,
-          required_specification: item.specification,
-        }),
-      ),
-    );
-    const failed = results.filter((result) => result.status === "rejected").length;
-    const succeeded = results.length - failed;
-    setStartingSourcing(false);
-
-    if (succeeded === 0) {
-      toast.error(`Could not start sourcing for "${group.productName}"`, { duration: 6000 });
-      return;
-    }
-    if (failed === 0) {
-      toast.success(
-        `Started sourcing with ${succeeded} supplier${succeeded === 1 ? "" : "s"} for "${group.productName}"`,
-        { duration: 6000 },
-      );
-    } else {
-      toast.error(
-        `Started sourcing with ${succeeded} of ${results.length} suppliers — ${failed} failed`,
-        { duration: 6000 },
-      );
-    }
-    router.push("/sourcing");
+  function statusOf(item: TenderItem): SourcingStatus | null {
+    if (!item.company_id) return null;
+    return sourcedStatus.get(sourcingKey(group.productId, item.company_id)) ?? null;
   }
+
+  function toggleChecked(itemId: number) {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  const checkedItems = group.items.filter(
+    (item): item is EnquiryTarget => checked.has(item.id) && item.company_id !== null,
+  );
 
   return (
     <>
       {group.items.map((item, index) => {
         const removing = removeItem.isPending && removeItem.variables?.itemId === item.id;
         const isLastInGroup = index === group.items.length - 1;
+        const status = statusOf(item);
+        const noBulkBarYet = checkedItems.length === 0;
+        // A local const (not the property access) so it narrows correctly
+        // inside the button's onClick closure below.
+        const companyId = item.company_id;
         return (
           <tr
             key={item.id}
             className={cn(
               "transition-colors hover:bg-accent/25",
-              isLastInGroup
+              isLastInGroup && noBulkBarYet
                 ? !isLastGroup && "border-b-2 border-border"
                 : "border-b border-dashed border-border/40",
             )}
@@ -781,30 +763,6 @@ function ProductRows({
                         {MATERIAL_TYPE_LABEL[[...materialTypes][0]!]}
                       </span>
                     )}
-                    {withSupplier.length > 0 &&
-                      (notYetSourced.length > 0 ? (
-                        <button
-                          type="button"
-                          onClick={startSourcing}
-                          disabled={startingSourcing}
-                          className="mt-2 flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
-                        >
-                          {startingSourcing ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <Send className="size-3.5" strokeWidth={2.25} />
-                          )}
-                          Start Sourcing ({notYetSourced.length})
-                        </button>
-                      ) : (
-                        <Link
-                          href="/sourcing"
-                          className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-success hover:underline"
-                        >
-                          <Send className="size-3.5" strokeWidth={2.25} />
-                          Sourcing started — view
-                        </Link>
-                      ))}
                   </div>
                 </div>
               </td>
@@ -831,15 +789,45 @@ function ProductRows({
                   {item.country}
                 </p>
               )}
-              {item.company_id && sourcedKeys.has(sourcingKey(group.productId, item.company_id)) && (
-                <span className="mt-1 inline-block rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-bold text-success">
-                  Sourcing started
-                </span>
-              )}
+              {item.company_id &&
+                (status ? (
+                  <span
+                    className={cn(
+                      "mt-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
+                      STATUS_STYLES[status].badge,
+                    )}
+                  >
+                    <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_STYLES[status].dot)} />
+                    {STATUS_STYLES[status].label}
+                  </span>
+                ) : (
+                  <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70">
+                    Not contacted
+                  </span>
+                ))}
             </td>
 
             <td className="px-3 py-3 align-top" onClick={(event) => event.stopPropagation()}>
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-end gap-1.5">
+                {companyId !== null && !status && (
+                  <>
+                    <Checkbox
+                      checked={checked.has(item.id)}
+                      onChange={() => toggleChecked(item.id)}
+                      aria-label={`Select ${item.company_name} for an enquiry`}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDialogTargets([{ ...item, company_id: companyId }])}
+                      className="h-8 text-xs"
+                    >
+                      <Send className="size-3.5" strokeWidth={2.25} />
+                      Start Enquiry
+                    </Button>
+                  </>
+                )}
                 <DropdownMenu
                   trigger={(props) => (
                     <button
@@ -857,16 +845,32 @@ function ProductRows({
                   )}
                 >
                   {(close) => (
-                    <DropdownMenuItem
-                      destructive
-                      onClick={() => {
-                        close();
-                        removeItem.mutate({ tenderId, itemId: item.id });
-                      }}
-                    >
-                      <Trash2 />
-                      Remove from tender
-                    </DropdownMenuItem>
+                    <>
+                      {status && (
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              close();
+                              router.push("/sourcing");
+                            }}
+                          >
+                            <Send />
+                            View enquiry
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      <DropdownMenuItem
+                        destructive
+                        onClick={() => {
+                          close();
+                          removeItem.mutate({ tenderId, itemId: item.id });
+                        }}
+                      >
+                        <Trash2 />
+                        Remove from tender
+                      </DropdownMenuItem>
+                    </>
                   )}
                 </DropdownMenu>
               </div>
@@ -874,6 +878,54 @@ function ProductRows({
           </tr>
         );
       })}
+
+      {checkedItems.length > 0 && (
+        <tr className={cn("border-b border-dashed border-border/40", isLastGroup && "border-b-0")}>
+          <td />
+          <td colSpan={2} className="px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary/[0.06] px-3 py-2">
+              <span className="text-xs font-semibold text-foreground">
+                {checkedItems.length} supplier{checkedItems.length === 1 ? "" : "s"} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setDialogTargets(checkedItems)}
+                  className="h-7 text-[11px]"
+                >
+                  <Send className="size-3" strokeWidth={2.25} />
+                  Start Enquiry for {checkedItems.length}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setChecked(new Set())}
+                  className="h-7 text-[11px]"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+
+      {dialogTargets && (
+        <StartEnquiryDialog
+          open
+          onClose={() => setDialogTargets(null)}
+          tenderId={tenderId}
+          productId={group.productId}
+          productName={group.productName}
+          targets={dialogTargets}
+          onCreated={() => {
+            setChecked(new Set());
+            setDialogTargets(null);
+          }}
+        />
+      )}
     </>
   );
 }

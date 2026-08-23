@@ -15,7 +15,7 @@ import {
   type SourcingFilterValues,
 } from "./sourcing-filters";
 import { SourcingPipelineStrip } from "./sourcing-pipeline";
-import { SourcingTable } from "./sourcing-table";
+import { groupSourcingByProduct, SourcingTable } from "./sourcing-table";
 import {
   PIPELINE_STAGES,
   formatDate,
@@ -50,6 +50,13 @@ export function SourcingWorkspace() {
     ? PIPELINE_STAGES.find((entry) => entry.key === stage)?.statuses ?? []
     : [];
 
+  // Table view groups by product, and the API paginates requests, not
+  // products — so table view fetches a flat page big enough to hold every
+  // matching request (100 = `/sourcing/requests`' own ceiling,
+  // settings.max_page_size) and paginates the *groups* client-side instead,
+  // the same split the tender detail page's shortlist table already uses.
+  const isGrouped = view === "list";
+
   const params: SourcingRequestParams = {
     q: filters.q || undefined,
     status: stageStatuses.length === 1 ? (stageStatuses[0] as SourcingStatus) : undefined,
@@ -57,12 +64,20 @@ export function SourcingWorkspace() {
       filters.untendered === "" ? undefined : filters.untendered === "true",
     sort: sortField,
     order: sortOrder,
-    page,
-    size: pageSize,
+    page: isGrouped ? 1 : page,
+    size: isGrouped ? 100 : pageSize,
   };
 
   const { data, isFetching, error } = useSourcingRequests(params);
   const rows = useMemo(() => data?.items ?? [], [data]);
+
+  const groups = useMemo(() => groupSourcingByProduct(rows), [rows]);
+  const groupTotal = groups.length;
+  const groupPageCount = Math.max(1, Math.ceil(groupTotal / pageSize));
+  const pageGroups = useMemo(
+    () => groups.slice((page - 1) * pageSize, page * pageSize),
+    [groups, page, pageSize],
+  );
 
   const total = data?.total ?? 0;
   const filtered =
@@ -80,6 +95,14 @@ export function SourcingWorkspace() {
 
   function changeSort(next: string) {
     setSort(next);
+    setPage(1);
+  }
+
+  // Table view paginates product groups and card view paginates raw requests
+  // — page 1 in one view has no correspondence to page 1 in the other, so a
+  // stale page number would show blank results after switching.
+  function changeView(next: "list" | "grid") {
+    setView(next);
     setPage(1);
   }
 
@@ -106,15 +129,15 @@ export function SourcingWorkspace() {
             Sourcing
           </h1>
           <p className="text-sm font-medium text-muted-foreground">
-            Manage supplier inquiries, track communications, and compare quotations.
+            Manage supplier enquiries, track communications, and compare quotations.
           </p>
         </div>
-        {/* Creating a request from scratch is not built — the flow that will
-            feed this is "Send Inquiry" from a product's supplier list. Shown
+        {/* Creating an enquiry from scratch is not built — the flow that will
+            feed this is "Start Enquiry" from a product's supplier list. Shown
             disabled so the header matches the design without misleading. */}
-        <Button disabled title="Creating a request is not available yet">
+        <Button disabled title="Creating an enquiry is not available yet">
           <Plus strokeWidth={2.25} />
-          New Sourcing Request
+          New Sourcing Enquiry
         </Button>
       </div>
 
@@ -125,6 +148,7 @@ export function SourcingWorkspace() {
       <div className="w-full min-w-0 rounded-2xl border border-border/60 bg-card shadow-sm">
         <SourcingTable
           rows={rows}
+          groups={pageGroups}
           total={total}
           isFetching={isFetching}
           error={error}
@@ -133,20 +157,21 @@ export function SourcingWorkspace() {
           filtered={filtered}
           onResetFilters={resetAll}
           view={view}
-          onViewChange={setView}
+          onViewChange={changeView}
           sort={sort}
           onSortChange={changeSort}
           onExport={exportCsv}
           exporting={exporting}
         />
 
-        {total > 0 && (
+        {(isGrouped ? groupTotal : total) > 0 && (
           <div className="border-t border-border/60 px-4 py-4 sm:px-5">
             <ResultsPagination
-              page={data?.page ?? page}
-              pageCount={data?.pages ?? 1}
-              total={total}
+              page={isGrouped ? page : data?.page ?? page}
+              pageCount={isGrouped ? groupPageCount : data?.pages ?? 1}
+              total={isGrouped ? groupTotal : total}
               pageSize={pageSize}
+              itemLabel={isGrouped ? "products" : "results"}
               onPageChange={(next) => {
                 setPage(next);
                 window.scrollTo({ top: 0, behavior: "smooth" });
@@ -198,7 +223,7 @@ function rowsToCsv(rows: SourcingRequestListItem[]): string {
         csvField(
           row.tender
             ? row.tender.reference_no ?? row.tender.name
-            : "Speculative Inquiry",
+            : "Speculative Enquiry",
         ),
         csvField(row.status),
         csvField(

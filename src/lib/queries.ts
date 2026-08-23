@@ -7,7 +7,16 @@ import {
   keepPreviousData,
 } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { useAuth, type AuthUser } from "@/lib/auth";
 import type {
+  AccountSession,
+  AdminUser,
+  AdminUserListParams,
+  AuditLogEntry,
+  AuditLogParams,
+  CreateUserInput,
+  CreateUserResult,
+  UserRole,
   CompanyCreateInput,
   CompanyCreateResult,
   CompanyDetail,
@@ -15,8 +24,12 @@ import type {
   CompanyListParams,
   CompanyStats,
   CompanyUpdateInput,
+  ContactActivityEntry,
   ContactCreateInput,
+  ContactDetail,
   ContactListItem,
+  ContactListParams,
+  ContactStats,
   ContactUpdateInput,
   CountryRef,
   DashboardStats,
@@ -42,9 +55,11 @@ import type {
   ImportRowFilter,
   OcrBatchResult,
   OcrStatus,
+  RecoveryCodes,
   SearchResults,
   SheetPreview,
   ShortlistMembership,
+  TwoFactorSetup,
   Communication,
   CommunicationCreateInput,
   SourcingPipeline,
@@ -75,6 +90,13 @@ import type {
  */
 export const keys = {
   dashboard: ["dashboard"] as const,
+  account: {
+    sessions: ["account", "sessions"] as const,
+  },
+  admin: {
+    users: (params: AdminUserListParams) => ["admin", "users", params] as const,
+    activityLog: (params: AuditLogParams) => ["admin", "activity-log", params] as const,
+  },
   countries: ["countries"] as const,
   activity: (limit: number) => ["activity", limit] as const,
   therapeuticCategories: ["therapeutic-categories"] as const,
@@ -87,7 +109,11 @@ export const keys = {
   },
   contacts: {
     all: ["contacts"] as const,
-    list: (params: ListParams) => ["contacts", "list", params] as const,
+    list: (params: ContactListParams) => ["contacts", "list", params] as const,
+    detail: (id: number) => ["contacts", "detail", id] as const,
+    stats: ["contacts", "stats"] as const,
+    departments: ["contacts", "departments"] as const,
+    activity: (id: number) => ["contacts", "activity", id] as const,
   },
   products: {
     all: ["products"] as const,
@@ -205,12 +231,44 @@ export function useCompanyStats() {
   });
 }
 
-export function useContacts(params: ListParams) {
+export function useContacts(params: ContactListParams) {
   return useQuery({
     queryKey: keys.contacts.list(params),
     queryFn: () =>
       apiFetch<Page<ContactListItem>>(`/contacts${toQueryString(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useContact(id: number | null) {
+  return useQuery({
+    queryKey: keys.contacts.detail(id ?? 0),
+    queryFn: () => apiFetch<ContactDetail>(`/contacts/${id}`),
+    enabled: id !== null,
+  });
+}
+
+export function useContactStats() {
+  return useQuery({
+    queryKey: keys.contacts.stats,
+    queryFn: () => apiFetch<ContactStats>("/contacts/stats"),
+  });
+}
+
+/** Options for the Role/Department filter — only values a contact actually
+ *  has, not a hard-coded list. */
+export function useContactDepartments() {
+  return useQuery({
+    queryKey: keys.contacts.departments,
+    queryFn: () => apiFetch<string[]>("/contacts/departments"),
+  });
+}
+
+export function useContactActivity(id: number | null) {
+  return useQuery({
+    queryKey: keys.contacts.activity(id ?? 0),
+    queryFn: () => apiFetch<ContactActivityEntry[]>(`/contacts/${id}/activity`),
+    enabled: id !== null,
   });
 }
 
@@ -344,6 +402,17 @@ export function useChangeSourcingStatus() {
   });
 }
 
+export function useDeleteSourcingRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: number) =>
+      apiFetch(`/sourcing/requests/${requestId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
 /** Log one exchange. An inbound message on a request that is still awaiting a
  *  reply advances it server-side, so this refreshes the board too. */
 export function useLogCommunication() {
@@ -401,6 +470,17 @@ export function useUpdateContact(companyId: number) {
       apiFetch(`/contacts/${id}`, { method: "PATCH", json: payload }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.companies.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: keys.contacts.all });
+    },
+  });
+}
+
+export function useDeleteContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: number) =>
+      apiFetch(`/contacts/${contactId}`, { method: "DELETE" }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.contacts.all });
     },
   });
@@ -881,5 +961,177 @@ export function useWithdrawImport(batchId: number) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.imports.all });
     },
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Account settings (SRS FR-AUTH extension, 2026-08-22)
+ * ---------------------------------------------------------------------- */
+
+export function useUpdateProfile() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: (full_name: string) =>
+      apiFetch<AuthUser>("/auth/me", { method: "PATCH", json: { full_name } }),
+    onSuccess: (user) => updateUser(user),
+  });
+}
+
+export function useUploadAvatar() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return apiFetch<AuthUser>("/auth/me/avatar", { method: "PUT", body: form });
+    },
+    onSuccess: (user) => updateUser(user),
+  });
+}
+
+export function useRemoveAvatar() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: () => apiFetch<AuthUser>("/auth/me/avatar", { method: "DELETE" }),
+    onSuccess: (user) => updateUser(user),
+  });
+}
+
+export function useUpdateNotificationPreferences() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: (payload: {
+      notify_follow_up_due: boolean;
+      notify_quotation_received: boolean;
+    }) => apiFetch<AuthUser>("/auth/me/notifications", { method: "PATCH", json: payload }),
+    onSuccess: (user) => updateUser(user),
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (payload: { current_password: string; new_password: string }) =>
+      apiFetch<{ detail: string }>("/auth/change-password", {
+        method: "POST",
+        json: payload,
+      }),
+  });
+}
+
+export function useSetupTwoFactor() {
+  return useMutation({
+    mutationFn: () => apiFetch<TwoFactorSetup>("/auth/2fa/setup", { method: "POST" }),
+  });
+}
+
+export function useConfirmTwoFactor() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: (code: string) =>
+      apiFetch<RecoveryCodes>("/auth/2fa/confirm", { method: "POST", json: { code } }),
+    onSuccess: () => updateUser({ two_factor_enabled: true }),
+  });
+}
+
+export function useDisableTwoFactor() {
+  const { updateUser } = useAuth();
+  return useMutation({
+    mutationFn: (current_password: string) =>
+      apiFetch<{ detail: string }>("/auth/2fa/disable", {
+        method: "POST",
+        json: { current_password },
+      }),
+    onSuccess: () => updateUser({ two_factor_enabled: false }),
+  });
+}
+
+export function useSessions() {
+  return useQuery({
+    queryKey: keys.account.sessions,
+    queryFn: () => apiFetch<AccountSession[]>("/auth/sessions"),
+  });
+}
+
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: number) =>
+      apiFetch<{ detail: string }>(`/auth/sessions/${sessionId}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.account.sessions }),
+  });
+}
+
+export function useRevokeOtherSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ detail: string }>("/auth/sessions", { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.account.sessions }),
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Admin: user management + audit trail (SRS FR-ADM extension, 2026-08-23)
+ * ---------------------------------------------------------------------- */
+
+export function useAdminUsers(params: AdminUserListParams) {
+  return useQuery({
+    queryKey: keys.admin.users(params),
+    queryFn: () => apiFetch<Page<AdminUser>>(`/users${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCreateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateUserInput) =>
+      apiFetch<CreateUserResult>("/users", { method: "POST", json: payload }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+export function useChangeUserRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: UserRole }) =>
+      apiFetch<AdminUser>(`/users/${userId}/role`, { method: "PATCH", json: { role } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+export function useSuspendUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch<AdminUser>(`/users/${userId}/suspend`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+export function useReactivateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch<AdminUser>(`/users/${userId}/reactivate`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch<{ detail: string }>(`/users/${userId}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+export function useActivityLog(params: AuditLogParams) {
+  return useQuery({
+    queryKey: keys.admin.activityLog(params),
+    queryFn: () =>
+      apiFetch<Page<AuditLogEntry>>(`/activity/log${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
   });
 }

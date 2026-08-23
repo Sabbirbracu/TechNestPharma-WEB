@@ -27,6 +27,14 @@ export type AuthUser = {
   role: UserRole;
   is_active: boolean;
   last_login_at: string | null;
+  avatar_url: string | null;
+  two_factor_enabled: boolean;
+  notify_follow_up_due: boolean;
+  notify_quotation_received: boolean;
+  /** True for an admin-created account still on its temp password — the
+   *  forced first-login screen (force-change-password-gate.tsx) blocks the
+   *  whole app shell until this clears. */
+  must_change_password: boolean;
 };
 
 /** Mirrors `TokenResponse`; the refresh token never appears here — it is an
@@ -38,13 +46,31 @@ type TokenResponse = {
   user: AuthUser;
 };
 
+/** Mirrors `LoginChallenge` — returned by `login()` in place of a user when
+ *  the account has two-step verification on (Settings, 2026-08-22). */
+type LoginChallenge = {
+  mfa_required: true;
+  mfa_token: string;
+  expires_in: number;
+};
+
+export type LoginResult =
+  | { status: "authenticated"; user: AuthUser }
+  | { status: "mfa_required"; mfaToken: string };
+
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 type AuthContextValue = {
   user: AuthUser | null;
   status: AuthStatus;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  /** Completes a two-step login: `code` is a TOTP or a recovery code. */
+  verifyLogin: (mfaToken: string, code: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  /** Patches the cached user in place after a Settings change (name, 2FA
+   *  toggle, notification prefs) — avoids a round trip through /auth/me just
+   *  to reflect what the caller already knows just succeeded. */
+  updateUser: (patch: Partial<AuthUser>) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -177,10 +203,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => clearTimer, [clearTimer]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const token = await apiFetch<TokenResponse>("/auth/login", {
+    async (email: string, password: string): Promise<LoginResult> => {
+      const result = await apiFetch<TokenResponse | LoginChallenge>(
+        "/auth/login",
+        { method: "POST", json: { email, password }, anonymous: true },
+      );
+      if ("mfa_required" in result) {
+        return { status: "mfa_required", mfaToken: result.mfa_token };
+      }
+      beginSession(result);
+      return { status: "authenticated", user: result.user };
+    },
+    [beginSession],
+  );
+
+  const verifyLogin = useCallback(
+    async (mfaToken: string, code: string) => {
+      const token = await apiFetch<TokenResponse>("/auth/login/verify", {
         method: "POST",
-        json: { email, password },
+        json: { mfa_token: mfaToken, code },
         anonymous: true,
       });
       beginSession(token);
@@ -188,6 +229,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [beginSession],
   );
+
+  const updateUser = useCallback((patch: Partial<AuthUser>) => {
+    setUser((current) => (current ? { ...current, ...patch } : current));
+  }, []);
 
   const logout = useCallback(async () => {
     try {
@@ -202,8 +247,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [endSession, queryClient]);
 
   const value = useMemo(
-    () => ({ user, status, login, logout }),
-    [user, status, login, logout],
+    () => ({ user, status, login, verifyLogin, logout, updateUser }),
+    [user, status, login, verifyLogin, logout, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -216,7 +261,13 @@ export function useAuth() {
 }
 
 /** Initials for the avatar chip — "Sabbir Ahmad" → "SA". */
-export function initialsOf(user: AuthUser | null): string {
+/** Only the fields an avatar actually needs — lets `UserAvatar` render an
+ *  `AdminUser` row (admin/users-workspace.tsx) as easily as the signed-in
+ *  `AuthUser`, without fabricating the fields that are only ever true for
+ *  "yourself" (2FA state, notification prefs). */
+export type AvatarSubject = Pick<AuthUser, "full_name" | "email" | "avatar_url">;
+
+export function initialsOf(user: AvatarSubject | null): string {
   if (!user) return "?";
   const parts = user.full_name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return user.email.charAt(0).toUpperCase();

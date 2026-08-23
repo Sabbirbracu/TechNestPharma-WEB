@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Menu, X, Search, Bell } from "lucide-react";
-import { useAuth, initialsOf } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import { Bell, BellOff, Loader2, LogOut, Menu, Search, Settings, X } from "lucide-react";
+import { UserAvatar } from "@/components/user-avatar";
+import { useAuth } from "@/lib/auth";
 import { Sidebar } from "./sidebar";
 
 /**
@@ -13,7 +15,34 @@ import { Sidebar } from "./sidebar";
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user } = useAuth();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+
+  // Closing on Escape covers both overlays; only one is ever open at a time
+  // in practice, so there is no ordering to worry about.
+  useEffect(() => {
+    if (!notifOpen && !profileOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setNotifOpen(false);
+        setProfileOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [notifOpen, profileOpen]);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -74,7 +103,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setNotifOpen(true)}
               aria-label="Notifications"
+              aria-expanded={notifOpen}
               className="relative rounded-lg p-2 text-muted-foreground transition-all hover:bg-accent hover:text-foreground hover:scale-105"
             >
               <Bell className="size-5" strokeWidth={2} />
@@ -84,18 +115,124 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span className="relative inline-flex size-2 rounded-full bg-primary ring-2 ring-background"></span>
               </span>
             </button>
-            <div
+
+            <button
+              type="button"
+              onClick={() => setProfileOpen(true)}
               title={user?.full_name}
-              className="ml-1 flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary to-primary-hover text-xs font-bold text-primary-foreground shadow-sm ring-2 ring-background/50 transition-transform hover:scale-105 lg:hidden"
+              aria-label="Account menu"
+              aria-expanded={profileOpen}
+              className="ml-1 shrink-0 rounded-xl ring-2 ring-background/50 transition-transform hover:scale-105"
             >
-              {initialsOf(user)}
-            </div>
+              <UserAvatar user={user} />
+            </button>
           </div>
         </header>
 
         <main className="flex-1 px-3 py-6 sm:px-4 sm:py-8 lg:px-8">
           <div className="mx-auto max-w-[1920px] space-y-6 sm:space-y-8">{children}</div>
         </main>
+      </div>
+
+      {/* Notification tray — slides in from the right, control-centre style */}
+      <div
+        className={`fixed inset-0 z-50 transition-opacity duration-300 ${
+          notifOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        aria-hidden={!notifOpen}
+      >
+        <div
+          className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
+          onClick={() => setNotifOpen(false)}
+        />
+        <aside
+          role="dialog"
+          aria-modal="true"
+          aria-label="Notifications"
+          className={`absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border/60 bg-card shadow-2xl transition-transform duration-300 ease-out ${
+            notifOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+            <h2 className="text-base font-bold tracking-tight text-foreground">Notifications</h2>
+            <button
+              type="button"
+              onClick={() => setNotifOpen(false)}
+              aria-label="Close notifications"
+              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-secondary text-muted-foreground ring-1 ring-inset ring-border/60">
+              <BellOff className="size-5" strokeWidth={2} />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-foreground">You&rsquo;re all caught up</p>
+              <p className="max-w-60 text-xs font-medium text-muted-foreground">
+                Nothing new right now — we&rsquo;ll let you know when something needs your attention.
+              </p>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* Account menu — anchored under the avatar on desktop, a bottom sheet
+          on phones (nothing to anchor it to once the header wraps). */}
+      <div
+        className={`fixed inset-0 z-50 transition-opacity duration-200 ${
+          profileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        aria-hidden={!profileOpen}
+      >
+        <div
+          className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
+          onClick={() => setProfileOpen(false)}
+        />
+        <div
+          role="menu"
+          aria-label="Account menu"
+          className={`absolute right-4 top-16 w-64 overflow-hidden rounded-2xl border border-border/60 bg-popover shadow-2xl transition-all duration-200 ${
+            profileOpen ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
+          }`}
+        >
+          <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3.5">
+            <UserAvatar user={user} size="size-10" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-foreground">
+                {user?.full_name ?? "—"}
+              </p>
+              <p className="truncate text-xs font-medium text-muted-foreground">{user?.email}</p>
+            </div>
+          </div>
+
+          <div className="p-1.5">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setProfileOpen(false);
+                router.push("/settings");
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/70 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+            >
+              <Settings />
+              Account settings
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleLogout}
+              disabled={signingOut}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-60 [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              {signingOut ? <Loader2 className="animate-spin" /> : <LogOut />}
+              Sign out
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

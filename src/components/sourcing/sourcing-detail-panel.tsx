@@ -81,7 +81,7 @@ export function SourcingDetailPanel({
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
-      aria-label={`Sourcing request for ${request.product.name_en}`}
+      aria-label={`Sourcing enquiry for ${request.product.name_en}`}
     >
       <div
         className="absolute inset-0 bg-foreground/50 backdrop-blur-sm"
@@ -100,7 +100,7 @@ export function SourcingDetailPanel({
               <StatusMenu request={request} />
             </div>
             <p className="mt-0.5 font-mono text-xs font-semibold text-muted-foreground">
-              Sourcing Request #{referenceOf(request)}
+              Sourcing Enquiry #{referenceOf(request)}
             </p>
           </div>
 
@@ -108,7 +108,7 @@ export function SourcingDetailPanel({
             {/* Watchlisting a request is not built; shown disabled so the
                 header matches the design without pretending to work. */}
             <IconButton
-              label="Watchlist this request"
+              label="Watchlist this enquiry"
               disabled
               title="Watchlisting is not available yet"
             >
@@ -145,7 +145,7 @@ export function SourcingDetailPanel({
               </Link>
             ) : (
               <span className="text-sm font-semibold text-muted-foreground">
-                Speculative Inquiry
+                Speculative Enquiry
               </span>
             )}
           </Fact>
@@ -194,7 +194,7 @@ export function SourcingDetailPanel({
       </header>
 
       <nav
-        aria-label="Request detail"
+        aria-label="Enquiry detail"
         className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border/60 px-3"
       >
         <TabButton active={tab === "timeline"} onClick={() => setTab("timeline")}>
@@ -225,7 +225,7 @@ export function SourcingDetailPanel({
           </div>
         ) : !detail ? (
           <p className="text-sm font-medium text-muted-foreground">
-            Could not load this request.
+            Could not load this enquiry.
           </p>
         ) : tab === "timeline" ? (
           <Timeline detail={detail} onOpenTab={setTab} />
@@ -446,7 +446,7 @@ function Quotations({ items }: { items: Quotation[] }) {
       <EmptyTab
         icon={FileText}
         title="No quotations recorded"
-        body="Record what the supplier quoted and the request moves to Quotation Received."
+        body="Record what the supplier quoted and the enquiry moves to Quotation Received."
       />
     );
   }
@@ -505,7 +505,7 @@ function Quotations({ items }: { items: Quotation[] }) {
   );
 }
 
-/** The document library has no API for sourcing requests yet — the schema link
+/** The document library has no API for sourcing enquiries yet — the schema link
  *  exists (`document_link.sourcing_request_id`) but nothing serves it. Saying
  *  so beats a tab that silently shows nothing. */
 function Documents() {
@@ -513,7 +513,7 @@ function Documents() {
     <EmptyTab
       icon={Paperclip}
       title="Documents are not connected yet"
-      body="The link between a request and its attachments exists in the database; the document API for it has not been built."
+      body="The link between an enquiry and its attachments exists in the database; the document API for it has not been built."
     />
   );
 }
@@ -604,8 +604,8 @@ function PanelMenu({ request }: { request: SourcingRequestListItem }) {
             Copy reference
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled title="Editing a request is not built yet">
-            Edit request
+          <DropdownMenuItem disabled title="Editing an enquiry is not built yet">
+            Edit enquiry
           </DropdownMenuItem>
         </>
       )}
@@ -713,7 +713,7 @@ function NotAvailable() {
 }
 
 function historyTitle(entry: StatusHistoryEntry): string {
-  if (entry.from_status === null) return "Request created";
+  if (entry.from_status === null) return "Enquiry created";
   return `Moved to ${STATUS_STYLES[entry.to_status].label}`;
 }
 

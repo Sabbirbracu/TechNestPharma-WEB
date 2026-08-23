@@ -19,6 +19,15 @@ import type {
   TherapeuticCategoryRef,
 } from "@/types/api";
 
+/** What the form actually reads from the row before the detail request lands
+ *  — a subset of `ProductListItem` so any screen holding at least this much
+ *  about a product (e.g. a search result) can open the dialog without
+ *  reshaping its data first. */
+export type EditableProductRow = Pick<
+  ProductListItem,
+  "id" | "name_en" | "name_cn" | "variant" | "cas_number" | "indication_text"
+>;
+
 const formSchema = z.object({
   name_en: z.string().min(1, "Name is required"),
   name_cn: z.string(),
@@ -36,7 +45,7 @@ type FormValues = z.infer<typeof formSchema>;
  *  fields only `GET /products/{id}` carries. Seeding from whichever has
  *  arrived means the form is editable before the detail lands. */
 function valuesFrom(
-  row: ProductListItem,
+  row: EditableProductRow,
   detail: ProductDetail | undefined,
 ): FormValues {
   return {
@@ -70,7 +79,7 @@ export function ProductFormDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  product: ProductListItem;
+  product: EditableProductRow;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const updateProduct = useUpdateProduct();

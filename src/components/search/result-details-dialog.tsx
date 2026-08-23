@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import {
   BadgeCheck,
   Building2,
@@ -11,11 +10,13 @@ import {
   Loader2,
   MapPin,
   Package,
+  Pencil,
   User,
   X,
 } from "lucide-react";
 import { CHANNEL_META, hrefForChannel } from "@/components/contact-channel";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { ProductFormDialog } from "@/components/products/product-form-dialog";
 import { useCompany, useOffer } from "@/lib/queries";
 import { MATERIAL_TYPE_LABEL, flagFor, type ResultRow } from "@/lib/search-facets";
 import { cn } from "@/lib/utils";
@@ -82,6 +83,7 @@ function DialogBody({ row, onClose }: { row: ResultRow; onClose: () => void }) {
   const { data: offer, isLoading: offerLoading } = useOffer(supplier.offer_id);
   const { data: company, isLoading: companyLoading } = useCompany(supplier.company_id);
   const flag = flagFor(supplier.country_code);
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
     <div
@@ -316,13 +318,16 @@ function DialogBody({ row, onClose }: { row: ResultRow; onClose: () => void }) {
 
       {/* Footer */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-secondary/20 px-5 py-3">
-        <Link
-          href={`/companies/${supplier.company_id}`}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => setEditOpen(true)}
         >
-          Open the full company page
-          <ExternalLink className="size-3.5" />
-        </Link>
+          <Pencil className="size-3.5" />
+          Edit product
+        </Button>
         <button
           type="button"
           onClick={onClose}
@@ -331,6 +336,12 @@ function DialogBody({ row, onClose }: { row: ResultRow; onClose: () => void }) {
           Close
         </button>
       </div>
+
+      <ProductFormDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        product={product}
+      />
     </div>
   );
 }

@@ -11,6 +11,8 @@ import {
   Search,
   Upload,
   Settings,
+  UserCog,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -65,9 +67,16 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Management",
+    items: [
+      { label: "Users", href: "/admin/users", icon: UserCog, fr: "FR-ADM" },
+      { label: "Activity Logs", href: "/admin/activity", icon: ScrollText, fr: "FR-ADM-02" },
+    ],
+  },
+  {
     label: "System",
     items: [
-      { label: "Admin", href: "/admin", icon: Settings, fr: "FR-ADM" },
+      { label: "Settings", href: "/settings", icon: Settings, fr: "FR-AUTH" },
     ],
   },
 ];

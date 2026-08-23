@@ -5,8 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Loader2 } from "lucide-react";
 import { BrandLockup } from "@/components/brand";
+import { UserAvatar } from "@/components/user-avatar";
 import { NAV_SECTIONS } from "@/config/nav";
-import { useAuth, initialsOf } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /** Sentence-case the role enum for display: "owner" → "Owner". */
@@ -93,17 +94,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {/* Premium footer with enhanced user profile - green accent on dark navy */}
       <div className="border-t border-sidebar-border/50 bg-sidebar/95 p-4">
         <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/70 px-3 py-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-success via-success to-success/90 text-xs font-bold text-success-foreground shadow-lg shadow-success/20">
-            {initialsOf(user)}
-          </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-sm font-semibold text-sidebar-foreground">
-              {user?.full_name ?? "—"}
-            </p>
-            <p className="truncate text-xs font-medium text-sidebar-foreground/60">
-              {user ? (ROLE_LABEL[user.role] ?? user.role) : ""}
-            </p>
-          </div>
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg transition-colors hover:opacity-90"
+            title="Account settings"
+          >
+            <UserAvatar user={user} tone="success" className="shadow-lg shadow-success/20" />
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-sm font-semibold text-sidebar-foreground">
+                {user?.full_name ?? "—"}
+              </p>
+              <p className="truncate text-xs font-medium text-sidebar-foreground/60">
+                {user ? (ROLE_LABEL[user.role] ?? user.role) : ""}
+              </p>
+            </div>
+          </Link>
           <button
             type="button"
             onClick={handleLogout}

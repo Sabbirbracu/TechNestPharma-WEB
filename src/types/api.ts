@@ -82,6 +82,13 @@ export type CompanyDetail = CompanyListItem & {
   contacts: CompanyContact[];
 };
 
+export type ContactCompanyRef = {
+  id: number;
+  name_en: string;
+  /** Not a field on the contact itself — read off the company relationship. */
+  country: CountryRef | null;
+};
+
 export type ContactListItem = {
   id: number;
   name_en: string;
@@ -89,8 +96,46 @@ export type ContactListItem = {
   designation: string | null;
   department: string | null;
   is_primary: boolean;
-  company: { id: number; name_en: string } | null;
+  company: ContactCompanyRef;
   channels: SearchChannel[];
+};
+
+/** GET /contacts/{id} — adds what the list doesn't carry. */
+export type ContactDetail = ContactListItem & {
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContactStatBucket = {
+  count: number;
+  /** null when the prior 30-day window had zero contacts/emails in this bucket. */
+  delta_pct: number | null;
+};
+
+export type ContactStats = {
+  total: ContactStatBucket;
+  primary: ContactStatBucket;
+  companies: ContactStatBucket;
+  emails_sent: ContactStatBucket;
+  replies_received: ContactStatBucket;
+};
+
+/** GET /contacts/{id}/activity — real Communication rows tied to this
+ *  person, not a generic feed. No "document shared" entries exist anywhere
+ *  in the system yet. */
+export type ContactActivityEntry = {
+  id: number;
+  occurred_at: string;
+  channel: CommunicationChannel;
+  direction: CommunicationDirection;
+  subject: string | null;
+};
+
+export type ContactListParams = ListParams & {
+  company_id?: number;
+  department?: string;
+  country_id?: number;
 };
 
 /**
@@ -999,4 +1044,86 @@ export type ActivityEntry = {
   action: ActivityAction;
   user_id: number | null;
   user_name: string | null;
+};
+
+/* -------------------------------------------------------------------------
+ * Account settings (SRS FR-AUTH extension, 2026-08-22)
+ * ---------------------------------------------------------------------- */
+
+export type TwoFactorSetup = {
+  secret: string;
+  otpauth_url: string;
+  qr_data_uri: string;
+};
+
+export type RecoveryCodes = {
+  codes: string[];
+};
+
+/** One device — the backend already collapses repeat logins from the same
+ *  browser into a single row (`AuthService._dedupe_by_device`). */
+export type AccountSession = {
+  id: number;
+  device: string;
+  ip: string | null;
+  created_at: string;
+  expires_at: string;
+  is_current: boolean;
+};
+
+/* -------------------------------------------------------------------------
+ * Admin: user management + audit trail (SRS FR-ADM extension, 2026-08-23)
+ * ---------------------------------------------------------------------- */
+
+/** An owner's view of someone else's account — distinct from `AuthUser`
+ *  (`lib/auth.tsx`), which is exclusively the signed-in user's own. */
+export type AdminUser = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_active: boolean;
+  last_login_at: string | null;
+  avatar_url: string | null;
+  created_at: string;
+};
+
+export type AdminUserListParams = ListParams & {
+  role?: UserRole;
+  is_active?: boolean;
+};
+
+export type CreateUserInput = {
+  email: string;
+  full_name: string;
+  password: string;
+  role: UserRole;
+};
+
+/** Same shape as `AdminUser` plus whether the invite email actually sent
+ *  (false when Resend isn't configured or the send failed — the admin
+ *  still has the temp password on screen to share manually either way). */
+export type CreateUserResult = AdminUser & { invite_email_sent: boolean };
+
+/** One raw `activity_log` row for the admin Activity Logs page — every
+ *  entity type, `changes` shown as-is (unlike the narrated `ActivityEntry`
+ *  the dashboard/tender sidebars use). */
+export type AuditLogEntry = {
+  id: number;
+  occurred_at: string;
+  action: ActivityAction;
+  entity_type: string;
+  entity_id: number | null;
+  changes: Record<string, unknown> | null;
+  ip: string | null;
+  user_id: number | null;
+  user_name: string | null;
+};
+
+export type AuditLogParams = ListParams & {
+  user_id?: number;
+  entity_type?: string;
+  action?: ActivityAction;
+  since?: string;
+  until?: string;
 };
