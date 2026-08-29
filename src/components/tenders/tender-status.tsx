@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   CalendarClock,
+  CalendarX2,
   CheckCircle2,
   Clock,
   Package,
@@ -41,11 +42,23 @@ export function TenderStatusBadge({ status }: { status: TenderStatus }) {
   );
 }
 
+/** The board's definition of "closing soon" — a tender due inside this many
+ *  days is on the clock. One constant so the stat card's bucket and every
+ *  countdown badge agree about where the amber starts. */
+export const CLOSING_SOON_WINDOW_DAYS = 15;
+
+/** How hard the countdown should press on the reader. `urgent` alone could
+ *  not carry this: a deadline two weeks out is not an emergency, but it is
+ *  the thing on the page a buyer most needs to notice. */
+export type ClosingLevel = "closed" | "critical" | "urgent" | "soon" | "calm";
+
 /** Days until the deadline, phrased the way a buyer thinks about it. Returns
  *  null when there is no closing date to count down to. */
 export function closingLabel(closingDate: string | null): {
   text: string;
   urgent: boolean;
+  level: ClosingLevel;
+  days: number;
 } | null {
   if (!closingDate) return null;
   const today = new Date();
@@ -53,14 +66,26 @@ export function closingLabel(closingDate: string | null): {
   const due = new Date(`${closingDate}T00:00:00`);
   const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
 
-  if (days < 0) return { text: `Closed ${Math.abs(days)}d ago`, urgent: false };
-  if (days === 0) return { text: "Closes today", urgent: true };
-  if (days === 1) return { text: "Closes tomorrow", urgent: true };
-  return { text: `${days} days left`, urgent: days <= 7 };
+  const level: ClosingLevel =
+    days < 0
+      ? "closed"
+      : days <= 1
+        ? "critical"
+        : days <= 7
+          ? "urgent"
+          : days <= CLOSING_SOON_WINDOW_DAYS
+            ? "soon"
+            : "calm";
+
+  if (days < 0)
+    return { text: `Closed ${Math.abs(days)}d ago`, urgent: false, level, days };
+  if (days === 0) return { text: "Closes today", urgent: true, level, days };
+  if (days === 1) return { text: "Closes tomorrow", urgent: true, level, days };
+  return { text: `${days} days left`, urgent: days <= 7, level, days };
 }
 
 /**
- * The board's own five buckets — what the stat cards count and every row
+ * The board's own six buckets — what the stat cards count and every row
  * badge reads, as opposed to `TenderStatusBadge` above, which shows the raw
  * stored `status` (used only where that value is being edited directly).
  * `open` and `closing_soon` are not stored states; see `display_status_expr`
@@ -74,6 +99,9 @@ export type DisplayStatusStyle = {
   dot: string;
   /** Icon tile: tinted square, for the stat card. */
   tile: string;
+  /** Solid top-edge accent, for the stat card — the one place per card that
+   *  carries the status colour at full strength rather than a tint. */
+  accent: string;
 };
 
 export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusStyle> = {
@@ -83,7 +111,8 @@ export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusSty
     icon: Package,
     badge: "bg-success/10 text-success ring-success/20",
     dot: "bg-success",
-    tile: "bg-tile-green-bg text-tile-green ring-tile-green/15",
+    tile: "bg-tile-green/15 text-tile-green ring-tile-green/30",
+    accent: "bg-tile-green",
   },
   closing_soon: {
     key: "closing_soon",
@@ -91,7 +120,17 @@ export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusSty
     icon: CalendarClock,
     badge: "bg-tile-amber-bg text-tile-amber ring-tile-amber/20",
     dot: "bg-tile-amber",
-    tile: "bg-tile-amber-bg text-tile-amber ring-tile-amber/15",
+    tile: "bg-tile-amber/15 text-tile-amber ring-tile-amber/30",
+    accent: "bg-tile-amber",
+  },
+  closed: {
+    key: "closed",
+    label: "Closed",
+    icon: CalendarX2,
+    badge: "bg-secondary text-foreground/70 ring-border/60",
+    dot: "bg-foreground/40",
+    tile: "bg-secondary text-foreground/70 ring-border/50",
+    accent: "bg-border",
   },
   awarded: {
     key: "awarded",
@@ -99,7 +138,8 @@ export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusSty
     icon: CheckCircle2,
     badge: "bg-tile-purple-bg text-tile-purple ring-tile-purple/20",
     dot: "bg-tile-purple",
-    tile: "bg-tile-purple-bg text-tile-purple ring-tile-purple/15",
+    tile: "bg-tile-purple/15 text-tile-purple ring-tile-purple/30",
+    accent: "bg-tile-purple",
   },
   cancelled: {
     key: "cancelled",
@@ -107,7 +147,8 @@ export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusSty
     icon: XCircle,
     badge: "bg-destructive/10 text-destructive ring-destructive/20",
     dot: "bg-destructive",
-    tile: "bg-destructive/10 text-destructive ring-destructive/15",
+    tile: "bg-destructive/15 text-destructive ring-destructive/30",
+    accent: "bg-destructive",
   },
   lost: {
     key: "lost",
@@ -116,13 +157,18 @@ export const DISPLAY_STATUS_STYLES: Record<TenderDisplayStatus, DisplayStatusSty
     badge: "bg-secondary text-muted-foreground ring-border/60",
     dot: "bg-muted-foreground",
     tile: "bg-secondary text-muted-foreground ring-border/50",
+    accent: "bg-border",
   },
 };
 
-/** Cards in the stat strip — `lost` is a real, filterable bucket but has no
- *  card of its own, matching the reference: a lost bid is not a thing the
- *  buyer tracks toward, it is just excluded from the four that are. */
-export const DISPLAY_STATUS_CARD_ORDER: Exclude<TenderDisplayStatus, "lost">[] = [
+/** Cards in the stat strip — `lost` and `closed` are real, filterable buckets
+ *  but have no card of their own, matching the reference: a lost bid, or one
+ *  whose deadline simply ran out, is not a thing the buyer tracks toward, it
+ *  is just excluded from the four that are. */
+export const DISPLAY_STATUS_CARD_ORDER: Exclude<
+  TenderDisplayStatus,
+  "lost" | "closed"
+>[] = [
   "open",
   "closing_soon",
   "awarded",

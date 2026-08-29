@@ -22,7 +22,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useChangeSourcingStatus, useSourcingRequest } from "@/lib/queries";
+import {
+  useChangeSourcingStatus,
+  useMailboxSettings,
+  useSourcingRequest,
+} from "@/lib/queries";
+import { MailComposeDialog } from "@/components/mailbox/mail-compose-dialog";
+import { MailThread } from "@/components/mailbox/mail-thread";
 import { cn } from "@/lib/utils";
 import {
   CHANNEL_LABELS,
@@ -42,7 +48,7 @@ import type {
   StatusHistoryEntry,
 } from "@/types/api";
 
-type Tab = "timeline" | "communications" | "quotations" | "documents";
+type Tab = "timeline" | "mail" | "communications" | "quotations" | "documents";
 
 /**
  * Everything about one request, over the list rather than beside it.
@@ -58,7 +64,9 @@ export function SourcingDetailPanel({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("timeline");
+  const [composing, setComposing] = useState(false);
   const { data, isPending } = useSourcingRequest(request.id);
+  const { data: mailbox } = useMailboxSettings();
 
   // The list row renders immediately; children fill in when the detail lands.
   const detail = data;
@@ -200,6 +208,9 @@ export function SourcingDetailPanel({
         <TabButton active={tab === "timeline"} onClick={() => setTab("timeline")}>
           Timeline
         </TabButton>
+        <TabButton active={tab === "mail"} onClick={() => setTab("mail")}>
+          Email
+        </TabButton>
         <TabButton
           active={tab === "communications"}
           onClick={() => setTab("communications")}
@@ -229,6 +240,11 @@ export function SourcingDetailPanel({
           </p>
         ) : tab === "timeline" ? (
           <Timeline detail={detail} onOpenTab={setTab} />
+        ) : tab === "mail" ? (
+          <MailThread
+            requestId={request.id}
+            onReply={() => setComposing(true)}
+          />
         ) : tab === "communications" ? (
           <Communications items={detail.communications} />
         ) : tab === "quotations" ? (
@@ -239,17 +255,24 @@ export function SourcingDetailPanel({
       </div>
 
       <footer className="flex shrink-0 items-center gap-2.5 border-t border-border/60 bg-secondary/30 p-4">
-        {/* Sending is the Gmail slice, which needs OAuth credentials that do
-            not exist yet. Disabled rather than hidden — the action belongs
-            here, and its absence would misrepresent the workflow. */}
+        {/* Enabled once a Gmail account is connected in Settings → Supplier
+            Mail. Disabled rather than hidden when it is not: the action
+            belongs here, and hiding it would misrepresent the workflow. */}
         <Button
           type="button"
-          disabled
-          title="Email sending is not connected yet"
+          onClick={() => setComposing(true)}
+          disabled={!mailbox?.can_send}
+          title={
+            mailbox?.can_send
+              ? undefined
+              : mailbox?.account?.status === "needs_reauth"
+                ? "The Gmail connection expired — reconnect it in Settings → Supplier Mail"
+                : "Connect a Gmail account in Settings → Supplier Mail"
+          }
           className="flex-1"
         >
           <Send strokeWidth={2.25} />
-          Send Follow-up
+          {request.sent_at ? "Send Follow-up" : "Send Inquiry"}
         </Button>
         <Button
           type="button"
@@ -263,6 +286,15 @@ export function SourcingDetailPanel({
         </Button>
       </footer>
       </div>
+
+      {composing && (
+        <MailComposeDialog
+          requestId={request.id}
+          supplierName={request.company.name_en}
+          onClose={() => setComposing(false)}
+          onSent={() => setTab("mail")}
+        />
+      )}
     </div>,
     document.body,
   );

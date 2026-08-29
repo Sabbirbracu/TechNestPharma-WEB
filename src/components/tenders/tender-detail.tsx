@@ -48,7 +48,7 @@ import {
 } from "@/components/tenders/tender-status";
 import {
   useRecentActivity,
-  useRemoveTenderItem,
+  useRemoveTenderShortlist,
   useDeleteTender,
   useSourcingRequests,
   useTender,
@@ -63,7 +63,7 @@ import type {
   ActivityEntry,
   SourcingStatus,
   TenderAuthorityType,
-  TenderItem,
+  TenderShortlist,
   TenderStatus,
 } from "@/types/api";
 
@@ -121,7 +121,7 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
 
   const closing = closingLabel(tender.closing_date);
   const supplierCount = new Set(
-    tender.items.map((item) => item.company_id).filter((id): id is number => id !== null),
+    tender.shortlists.map((item) => item.company_id).filter((id): id is number => id !== null),
   ).size;
 
   return (
@@ -273,7 +273,7 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
 
           <div className="p-5">
             {tab === "shortlist" && (
-              <ShortlistedProductsPanel tenderId={tenderId} items={tender.items} />
+              <ShortlistedProductsPanel tenderId={tenderId} items={tender.shortlists} />
             )}
             {tab === "details" && (
               <TenderDetailsPanel
@@ -389,11 +389,11 @@ type ProductGroupData = {
   productName: string;
   productNameCn: string | null;
   casNumber: string | null;
-  items: TenderItem[];
+  items: TenderShortlist[];
 };
 
 function groupByProduct(
-  items: TenderItem[],
+  items: TenderShortlist[],
   filter: string,
   supplierId: number | "",
 ): ProductGroupData[] {
@@ -446,7 +446,7 @@ function csvField(value: string | number | null | undefined): string {
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function itemsToCsv(items: TenderItem[]): string {
+function itemsToCsv(items: TenderShortlist[]): string {
   const lines = [CSV_COLUMNS.join(",")];
   for (const item of items) {
     lines.push(
@@ -490,7 +490,7 @@ function ShortlistedProductsPanel({
   items,
 }: {
   tenderId: number;
-  items: TenderItem[];
+  items: TenderShortlist[];
 }) {
   const [filter, setFilter] = useState("");
   const [supplierId, setSupplierId] = useState<number | "">("");
@@ -694,13 +694,13 @@ function ProductRows({
   isLastGroup: boolean;
   sourcedStatus: Map<string, SourcingStatus>;
 }) {
-  const removeItem = useRemoveTenderItem();
+  const removeItem = useRemoveTenderShortlist();
   const router = useRouter();
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [dialogTargets, setDialogTargets] = useState<EnquiryTarget[] | null>(null);
   const materialTypes = new Set(group.items.map((item) => item.material_type).filter(Boolean));
 
-  function statusOf(item: TenderItem): SourcingStatus | null {
+  function statusOf(item: TenderShortlist): SourcingStatus | null {
     if (!item.company_id) return null;
     return sourcedStatus.get(sourcingKey(group.productId, item.company_id)) ?? null;
   }
@@ -824,7 +824,7 @@ function ProductRows({
                       className="h-8 text-xs"
                     >
                       <Send className="size-3.5" strokeWidth={2.25} />
-                      Start Enquiry
+                      Send Enquiry
                     </Button>
                   </>
                 )}
@@ -895,7 +895,7 @@ function ProductRows({
                   className="h-7 text-[11px]"
                 >
                   <Send className="size-3" strokeWidth={2.25} />
-                  Start Enquiry for {checkedItems.length}
+                  Send Enquiry to {checkedItems.length}
                 </Button>
                 <Button
                   type="button"

@@ -51,6 +51,10 @@
   --color-tile-blue-bg: var(--tile-blue-bg);
   --color-tile-purple: var(--tile-purple);
   --color-tile-purple-bg: var(--tile-purple-bg);
+  --color-tile-teal: var(--tile-teal);
+  --color-tile-teal-bg: var(--tile-teal-bg);
+  --color-tile-rose: var(--tile-rose);
+  --color-tile-rose-bg: var(--tile-rose-bg);
 
   --font-sans: var(--font-montserrat);
   --font-mono: var(--font-geist-mono);
@@ -132,6 +136,10 @@
   --tile-blue-bg: oklch(0.952 0.038 240);
   --tile-purple: oklch(0.565 0.185 302);
   --tile-purple-bg: oklch(0.95 0.042 305);
+  --tile-teal: oklch(0.545 0.105 200);
+  --tile-teal-bg: oklch(0.952 0.036 200);
+  --tile-rose: oklch(0.565 0.185 12);
+  --tile-rose-bg: oklch(0.955 0.03 15);
 
   /* Sidebar: Deep navy blue background (matching logo dark variant) for premium contrast */
   --sidebar: oklch(0.22 0.045 255); /* Deep navy blue #001f3f / #0a1929 */
@@ -188,6 +196,10 @@
   --tile-blue-bg: oklch(0.72 0.15 248 / 0.16);
   --tile-purple: oklch(0.74 0.17 302);
   --tile-purple-bg: oklch(0.74 0.17 302 / 0.16);
+  --tile-teal: oklch(0.76 0.12 200);
+  --tile-teal-bg: oklch(0.76 0.12 200 / 0.15);
+  --tile-rose: oklch(0.74 0.16 15);
+  --tile-rose-bg: oklch(0.74 0.16 15 / 0.15);
 
   --sidebar: oklch(0.185 0.019 255);
   --sidebar-foreground: oklch(0.96 0.005 250);

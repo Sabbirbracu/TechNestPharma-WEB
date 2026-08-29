@@ -4,6 +4,7 @@ import {
   Users,
   FlaskConical,
   Gavel,
+  ScanLine,
   Handshake,
   Mails,
   TestTube2,
@@ -54,6 +55,15 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Bidding",
     items: [
+      // Notices sit ABOVE tenders because that is the order the work
+      // happens in: a notice is captured and reviewed, and the tenders on
+      // the board below are what comes out of it.
+      {
+        label: "Tender Notices",
+        href: "/tender-notices",
+        icon: ScanLine,
+        fr: "FR-TENDER",
+      },
       { label: "Tenders", href: "/tenders", icon: Gavel, fr: "FR-TENDER" },
       { label: "Sourcing", href: "/sourcing", icon: Mails, fr: "FR-SRC" },
     ],

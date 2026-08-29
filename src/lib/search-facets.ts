@@ -130,8 +130,10 @@ export function toRows(data: SearchResults | undefined): ResultRow[] {
 function matchesGroup(row: ResultRow, kind: FacetKind, selected: string[]): boolean {
   if (selected.length === 0) return true;
   if (kind === "category") {
-    return row.supplier.material_type !== null &&
-      selected.includes(row.supplier.material_type);
+    // The catalogue's own classification, not this one supplier's "offered
+    // as" claim — keeps the checkbox in sync with the badge the card shows.
+    return row.product.material_type !== null &&
+      selected.includes(row.product.material_type);
   }
   if (kind === "country") {
     return row.supplier.country !== null && selected.includes(row.supplier.country);
@@ -169,7 +171,7 @@ function countsFor(
   const bump = (value: string) => counts.set(value, (counts.get(value) ?? 0) + 1);
 
   for (const row of scoped) {
-    if (kind === "category" && row.supplier.material_type) bump(row.supplier.material_type);
+    if (kind === "category" && row.product.material_type) bump(row.product.material_type);
     if (kind === "country" && row.supplier.country) bump(row.supplier.country);
     if (kind === "standard") row.standards.forEach(bump);
   }

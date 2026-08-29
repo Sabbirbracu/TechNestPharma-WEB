@@ -87,21 +87,21 @@ export const UNCATEGORISED: CategoryStyle = {
  *
  * Precedence, most authoritative first:
  *   1. a packaging spec row, which is what *makes* a product a packaging
- *      material (D14)
- *   2. the rollup across its offers, already ordered by how many suppliers back
- *      each one
+ *      material (D14) — authoritative even if `material_type` disagrees or
+ *      was never set
+ *   2. the product's own `material_type` — the catalogue's general-knowledge
+ *      classification, independent of any one supplier's claim
  *
- * A substance can be sold as several things at once — that is the point of
- * keeping material type on the offer, not the product — but the row needs one
- * icon and one leading badge.
+ * A substance can still be *offered as* several things at once (a supplier's
+ * own claim, `ProductFacets.material_types`) — that axis stays on the offer
+ * and shows only in the details view, not here.
  */
 export function primaryCategory(
-  materialTypes: MaterialType[],
+  materialType: MaterialType | null,
   isPackaging: boolean,
 ): CategoryStyle {
   if (isPackaging) return PACKAGING;
-  const [first] = materialTypes;
-  return first ? CATEGORY_STYLES[first] ?? UNCATEGORISED : UNCATEGORISED;
+  return materialType ? CATEGORY_STYLES[materialType] ?? UNCATEGORISED : UNCATEGORISED;
 }
 
 /** Options for the Category filter — the buckets the header tiles count, in the

@@ -2,7 +2,13 @@
 
 import { cn } from "@/lib/utils";
 
-export type TenderTab = "all" | "mine" | "participated" | "awarded" | "cancelled";
+export type TenderTab =
+  | "all"
+  | "mine"
+  | "participated"
+  | "awarded"
+  | "cancelled"
+  | "closed";
 
 const TABS: { value: TenderTab; label: string }[] = [
   { value: "all", label: "All Tenders" },
@@ -10,11 +16,12 @@ const TABS: { value: TenderTab; label: string }[] = [
   { value: "participated", label: "Participated" },
   { value: "awarded", label: "Awarded" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "closed", label: "Closed" },
 ];
 
 /**
  * "My Tenders" and "Participated" narrow by who touched the tender
- * (`scope`); "Awarded" and "Cancelled" narrow by its display bucket
+ * (`scope`); "Awarded", "Cancelled" and "Closed" narrow by its display bucket
  * (`display_status`) — two different filters that happen to share one tab
  * strip, because that is how a buyer thinks about "which tenders do I want
  * to see", not because they are the same kind of question underneath.

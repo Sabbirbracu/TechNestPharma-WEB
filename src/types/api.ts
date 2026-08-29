@@ -154,6 +154,19 @@ export type ProductFacets = {
   countries: CountryRef[];
   applications: ApplicationType[];
   supplier_count: number;
+  /** Every supplier's name, most-offered first — shown in place of
+   *  CAS/Applications when the catalogue is filtered to packaging materials
+   *  (first name visible, the rest behind a "show more" toggle). */
+  suppliers: string[];
+  /** The cheapest priced offer, from whichever (currency, price_unit) group
+   *  has the most offers backing it. All null when no supplier has priced
+   *  this product — still most of the catalogue today. */
+  price_min: string | null;
+  price_max: string | null;
+  price_currency: string | null;
+  price_unit: string | null;
+  price_moq: string | null;
+  price_moq_unit: string | null;
 };
 
 export type ProductListItem = {
@@ -166,7 +179,22 @@ export type ProductListItem = {
   indication_text: string | null;
   therapeutic_classes: string[];
   is_packaging: boolean;
+  /** The catalogue's own classification — the one badge a list/search row
+   *  leads with. `facets.material_types` is the separate "offered as" axis
+   *  (what suppliers call it), shown only in the details view. Null reads as
+   *  "Uncategorised". */
+  material_type: MaterialType | null;
   created_at: string | null;
+  parent_product_id: number | null;
+  /** Live children hanging off this row — different sizes/colours of the same
+   *  packaging item, salts of the same API, etc. 0 means this row is either a
+   *  leaf product or a variant itself; a row with children is a family
+   *  heading, fetched via `?parent_product_id=<id>` to see them. */
+  variant_count: number;
+  /** Already eager-loaded for every row, packaging or not — costs nothing
+   *  extra, and the variant breakdown wants size/colour without a second
+   *  fetch. Null for anything that isn't a packaging item. */
+  packaging_spec: PackagingSpec | null;
   facets: ProductFacets;
 };
 
@@ -175,11 +203,9 @@ export type ProductListItem = {
 export type ProductDetail = ProductListItem & {
   molecular_formula: string | null;
   cas_raw: string | null;
-  parent_product_id: number | null;
   relation_to_parent: string | null;
   notes: string | null;
   synonyms: { id: number; synonym: string; synonym_type: string }[];
-  packaging_spec: PackagingSpec | null;
   /** Same axis as `therapeutic_classes`, with ids — the strings read well, the
    *  refs are what an edit form binds a selection to. */
   categories: TherapeuticCategoryRef[];
@@ -395,10 +421,9 @@ export type SearchSupplier = {
   specification: string | null;
   qualification: string | null;
   packing: string | null;
-  /** What this supplier offers the product *as*. Lives on the offer, not the
-   *  product — the same substance is an API to one supplier, an excipient to
-   *  another — which is why the category facet is per result row, not per
-   *  product. */
+  /** What this supplier offers the product *as* — can differ from the
+   *  product's own `material_type` below. Per-supplier detail only; not the
+   *  badge a result card leads with any more. */
   material_type: MaterialType | null;
 };
 
@@ -416,6 +441,9 @@ export type SearchResults = {
     cas_number: string | null;
     cas_is_verified: boolean;
     indication_text: string | null;
+    /** The catalogue's own classification — the badge a result card leads
+     *  with. Null reads as "Uncategorised". */
+    material_type: MaterialType | null;
     /** Independent of material type (FR-PROD-08); a product may have several. */
     therapeutic_classes: string[];
     suppliers: SearchSupplier[];
@@ -477,6 +505,9 @@ export type ProductCreateInput = {
   variant?: string | null;
   molecular_formula?: string | null;
   indication_text?: string | null;
+  /** The catalogue's own classification — independent of any one supplier's
+   *  claim (that lives on the offer, D14). */
+  material_type?: MaterialType | null;
   notes?: string | null;
   cas?: string | null;
   /** Set only for packaging materials. Its presence is what subjects the
@@ -546,13 +577,14 @@ export type TenderStatus = "draft" | "submitted" | "won" | "lost" | "cancelled";
 export type TenderDisplayStatus =
   | "open"
   | "closing_soon"
+  | "closed"
   | "awarded"
   | "cancelled"
   | "lost";
 
 export type TenderAuthorityType = "government" | "private";
 
-export type TenderItem = {
+export type TenderShortlist = {
   id: number;
   tender_id: number;
   product_id: number;
@@ -597,7 +629,7 @@ export type TenderListItem = {
 };
 
 export type TenderDetail = TenderListItem & {
-  items: TenderItem[];
+  shortlists: TenderShortlist[];
 };
 
 export type TenderListParams = ListParams & {
@@ -636,7 +668,7 @@ export type TenderCreateInput = {
 
 export type TenderUpdateInput = Partial<TenderCreateInput>;
 
-export type TenderItemInput = {
+export type TenderShortlistInput = {
   product_id: number;
   company_id?: number | null;
   supplier_product_id?: number | null;
@@ -959,6 +991,312 @@ export type SourcingRequestDetail = SourcingRequestListItem & {
   history: StatusHistoryEntry[];
   communications: Communication[];
   quotations: Quotation[];
+};
+
+// --- Tender notices (notice pipeline) ---------------------------------------
+//
+// The hierarchy, and the reason `TenderItem` means what it means:
+//
+//   TenderNotice        one published document ("EDCL Tender Notice, 15 Aug")
+//     └── Tender        one bid within it, identified by its reference number
+//           └── TenderItem      what the notice ASKS FOR, as it worded it
+//                 └── matched Product   nullable — the notice can name
+//                                       something the catalogue has never held
+//
+// A tender item is never a product. `raw_name` is the notice's own wording and
+// is never rewritten; the link to the catalogue is a separate, nullable,
+// human-confirmed decision.
+
+export type NoticeStatus =
+  | "captured"
+  | "extracting"
+  | "extracted"
+  | "needs_review"
+  | "confirmed"
+  | "failed";
+
+/** `confirmed` is only ever set by a person — the matcher's ceiling is
+ *  `suggested`, however certain it is. */
+export type MappingStatus = "unmapped" | "suggested" | "confirmed" | "skipped";
+
+/** Which tier produced a suggestion. Always shown beside the score: "84%" on
+ *  its own is a number nobody can argue with. */
+export type MatchMethod = "exact" | "normalized" | "alias" | "fuzzy" | "manual";
+
+export type TenderType = "international" | "local";
+
+export type NoticeSource = {
+  id: number;
+  name: string;
+  full_name: string | null;
+  base_url: string | null;
+  /** "manual" means upload-only — no fetcher exists for it yet. */
+  adapter: string;
+  is_enabled: boolean;
+  last_fetched_at: string | null;
+  last_error: string | null;
+};
+
+export type MatchCandidate = {
+  product_id: number;
+  name: string;
+  cas_number: string | null;
+  confidence: string;
+  method: MatchMethod;
+};
+
+export type TenderItemProductRef = {
+  id: number;
+  name_en: string;
+  cas_number: string | null;
+};
+
+/** One company that can supply a line's matched product.
+ *
+ *  Keyed on the OFFER, not the company: a company can hold several offers for
+ *  one product (different grades or plants) and the buyer may want one and not
+ *  the other. Several offers from the same company collapse to a single
+ *  shortlist row on confirmation, because a bid is against a company. */
+export type ItemSupplier = {
+  id: number;
+  company_id: number;
+  company_name: string;
+  supplier_product_id: number;
+  is_selected: boolean;
+  country: string | null;
+  price_min: string | null;
+  price_max: string | null;
+  currency: string | null;
+  price_unit: string | null;
+};
+
+export type NoticeTenderItem = {
+  id: number;
+  line_no: number;
+  /** Verbatim from the notice. Never rewritten by the matcher. */
+  raw_name: string;
+  /** The pharmacopoeia read off the end — "BP", "USP", "Ph. Gr." */
+  specification: string | null;
+  matched_product_id: number | null;
+  matched_product: TenderItemProductRef | null;
+  mapping_status: MappingStatus;
+  match_confidence: string | null;
+  match_method: MatchMethod | null;
+  mapped_at: string | null;
+  quantity: string | null;
+  quantity_unit: string | null;
+  remarks: string | null;
+  /** Every company offering the matched product, ticked by default. */
+  suppliers: ItemSupplier[];
+};
+
+export type NoticeTender = {
+  id: number;
+  name: string;
+  reference_no: string | null;
+  notice_date: string | null;
+  tender_type: TenderType | null;
+  closing_date: string | null;
+  closing_time: string | null;
+  opening_date: string | null;
+  opening_time: string | null;
+  schedule_cost: string | null;
+  schedule_currency: string | null;
+  schedule_cost_usd: string | null;
+  procurement_basis: string | null;
+  items: NoticeTenderItem[];
+  item_count: number;
+  /** confirmed + skipped — every line a human has finished with. */
+  mapped_count: number;
+  /** How many shortlist rows a confirm would create right now, deduped the
+   *  way the database will dedupe them. */
+  selected_supplier_count: number;
+  /** NULL while this tender is still a machine's reading of the notice. */
+  notice_confirmed_at: string | null;
+};
+
+export type TenderConfirmResult = {
+  tender_id: number;
+  reference_no: string | null;
+  shortlisted: number;
+  items_mapped: number;
+  items_total: number;
+  detail: string;
+};
+
+export type TenderNoticeListItem = {
+  id: number;
+  title: string;
+  source_name: string | null;
+  source_url: string | null;
+  notice_date: string | null;
+  detected_at: string | null;
+  status: NoticeStatus;
+  /** "pdf_table" (exact) | "pdf_text" | "ocr_layout" | "ocr" */
+  extraction_method: string | null;
+  extraction_confidence: string | null;
+  original_filename: string | null;
+  file_size_bytes: number | null;
+  page_count: number | null;
+  created_at: string;
+  tender_count: number;
+  item_count: number;
+  mapped_count: number;
+};
+
+export type TenderNoticeDetail = TenderNoticeListItem & {
+  extraction_error: string | null;
+  extracted_at: string | null;
+  notes: string | null;
+  tenders: NoticeTender[];
+  source: NoticeSource | null;
+};
+
+export type TenderNoticeParams = ListParams & {
+  status?: NoticeStatus;
+  source_id?: number;
+};
+
+export type ExtractionResult = {
+  notice_id: number;
+  status: NoticeStatus;
+  method: string;
+  confidence: string;
+  tender_count: number;
+  item_count: number;
+  matched_count: number;
+  /** Non-fatal: a scanned PDF, a duplicate tender, nothing recognised. */
+  warnings: string[];
+};
+
+export type NoticeConfirmResult = {
+  notice_id: number;
+  status: NoticeStatus;
+  tenders_confirmed: number;
+  shortlisted: number;
+  detail: string;
+};
+
+export type TenderItemMappingInput = {
+  product_id?: number | null;
+  skip?: boolean;
+};
+
+export type NoticeTenderUpdateInput = Partial<{
+  name: string;
+  reference_no: string;
+  notice_date: string | null;
+  tender_type: TenderType | null;
+  closing_date: string | null;
+  closing_time: string | null;
+  opening_date: string | null;
+  opening_time: string | null;
+  schedule_cost: string | null;
+  schedule_currency: string | null;
+  schedule_cost_usd: string | null;
+  buyer_name: string | null;
+}>;
+
+// --- Supplier mail (Gmail mailbox module) -----------------------------------
+// Distinct from the Resend path that sends invites and password resets. This
+// is mail sent as a person, from the client's own address, that expects a
+// reply. `needs_reauth` is an EXPECTED weekly state, not an error: the mailbox
+// is a consumer @gmail.com on a Testing-mode OAuth app, so refresh tokens
+// expire every 7 days.
+
+export type MailboxStatus = "connected" | "needs_reauth" | "disconnected";
+
+export type MailboxAccount = {
+  id: number;
+  provider: string;
+  email_address: string;
+  display_name: string | null;
+  status: MailboxStatus;
+  granted_scopes: string[] | null;
+  last_synced_at: string | null;
+  last_sync_error: string | null;
+  connected_at: string | null;
+};
+
+export type MailboxSettings = {
+  /** Server has GMAIL_CLIENT_ID/SECRET set. */
+  configured: boolean;
+  /** False means MAILBOX_TOKEN_KEY is unset and tokens sit in plaintext. */
+  tokens_encrypted: boolean;
+  account: MailboxAccount | null;
+  /** Only true when connected AND holding the send scope. */
+  can_send: boolean;
+  reauth_due_at: string | null;
+  days_until_reauth: number | null;
+};
+
+export type MailAttachment = {
+  id: number;
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  /** Signature logos and the like — hidden by default in the thread view. */
+  is_inline: boolean;
+};
+
+export type MailMessage = {
+  id: number;
+  direction: CommunicationDirection;
+  occurred_at: string;
+  subject: string | null;
+  body: string | null;
+  counterparty: string | null;
+  external_id: string | null;
+  external_thread_id: string | null;
+  has_attachments: boolean;
+  attachments: MailAttachment[];
+};
+
+export type MailThread = {
+  thread_id: string | null;
+  messages: MailMessage[];
+};
+
+export type InquiryDraft = {
+  to: string[];
+  subject: string;
+  body: string;
+  /** Set when continuing an existing conversation rather than starting one. */
+  thread_id: string | null;
+  /** Non-fatal gaps — no address on file, no quantity set. */
+  warnings: string[];
+};
+
+/** POST /mailbox/inquiry-preview — the same email the draft endpoint builds,
+ *  rendered for an enquiry that has not been filed yet. Mirrors the sourcing
+ *  request's own fields rather than referencing a row id. */
+export type InquiryPreviewInput = {
+  product_id: number;
+  company_id: number;
+  contact_person_id?: number | null;
+  required_quantity?: string | null;
+  quantity_unit?: string | null;
+  required_specification?: string | null;
+  required_packing?: string | null;
+  required_documents?: string[] | null;
+  /** Written for the supplier to read — goes into the body verbatim. */
+  notes?: string | null;
+};
+
+export type MailSendInput = {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  body: string;
+  thread_id?: string | null;
+};
+
+export type MailSyncResult = {
+  synced: number;
+  threads_checked: number;
+  last_synced_at: string | null;
+  /** A partial sync still commits what it imported, so this rides on a 200. */
+  error: string | null;
 };
 
 export type SourcingRequestParams = ListParams & {

@@ -4,12 +4,11 @@ import { ArrowDown, ArrowRight, ArrowUp, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTenderStats } from "@/lib/queries";
 import {
+  CLOSING_SOON_WINDOW_DAYS,
   DISPLAY_STATUS_CARD_ORDER,
   DISPLAY_STATUS_STYLES,
 } from "./tender-status";
 import type { TenderDisplayStatus, TenderStatBucket } from "@/types/api";
-
-const CLOSING_SOON_WINDOW_DAYS = 15;
 
 /**
  * The five stat tiles: total plus each display bucket. Every card's title,
@@ -51,7 +50,8 @@ export function TenderStats({
       <StatCard
         label="Total Tenders"
         icon={FileText}
-        tile="bg-tile-blue-bg text-tile-blue ring-tile-blue/15"
+        tile="bg-tile-blue/15 text-tile-blue ring-tile-blue/30"
+        accent="bg-tile-blue"
         action="bg-secondary text-secondary-foreground hover:bg-secondary/70"
         bucket={data.total}
         active={false}
@@ -65,6 +65,7 @@ export function TenderStats({
             label={style.label}
             icon={style.icon}
             tile={style.tile}
+            accent={style.accent}
             action={style.badge}
             bucket={data[key]}
             caption={
@@ -87,6 +88,7 @@ function StatCard({
   label,
   icon: Icon,
   tile,
+  accent,
   action,
   bucket,
   caption,
@@ -96,6 +98,9 @@ function StatCard({
   label: string;
   icon: typeof FileText;
   tile: string;
+  /** Solid top-edge accent — the one place per card that carries the status
+   *  colour at full strength rather than a tint. */
+  accent: string;
   action: string;
   bucket: TenderStatBucket;
   /** A fixed caption instead of the 30-day delta — Closing Soon's membership
@@ -107,12 +112,17 @@ function StatCard({
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col gap-3 rounded-2xl border bg-card p-4 shadow-sm transition-all duration-300",
+        "relative flex h-full w-full flex-col gap-3 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm transition-all duration-300",
         active
-          ? "border-primary/50 ring-1 ring-primary/20"
+          ? "border-primary/50 ring-1 ring-primary/30"
           : "border-border/60 hover:-translate-y-0.5 hover:shadow-md",
       )}
     >
+      <span
+        aria-hidden
+        className={cn("absolute inset-x-0 top-0 h-0.75", accent)}
+      />
+
       <p
         title={label}
         className="line-clamp-2 min-h-[2.125rem] text-xs font-semibold leading-snug text-foreground"

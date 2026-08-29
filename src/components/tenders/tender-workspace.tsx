@@ -69,11 +69,9 @@ export function TenderWorkspace() {
       ? "mine"
       : scope === "participated"
         ? "participated"
-        : status === "awarded"
-          ? "awarded"
-          : status === "cancelled"
-            ? "cancelled"
-            : "all";
+        : status === "awarded" || status === "cancelled" || status === "closed"
+          ? status
+          : "all";
 
   function changeTab(tab: TenderTab) {
     setPage(1);
@@ -83,7 +81,7 @@ export function TenderWorkspace() {
     } else if (tab === "participated") {
       setScope("participated");
       setStatus("");
-    } else if (tab === "awarded" || tab === "cancelled") {
+    } else if (tab === "awarded" || tab === "cancelled" || tab === "closed") {
       setScope(undefined);
       setStatus(tab);
     } else {

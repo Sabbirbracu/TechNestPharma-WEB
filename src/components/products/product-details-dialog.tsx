@@ -19,7 +19,12 @@ import {
 } from "@/lib/queries";
 import { ProductFormDialog } from "./product-form-dialog";
 import { cn } from "@/lib/utils";
-import { applicationLabel, flagEmoji, primaryCategory } from "./product-taxonomy";
+import {
+  CATEGORY_STYLES,
+  applicationLabel,
+  flagEmoji,
+  primaryCategory,
+} from "./product-taxonomy";
 import type { ProductListItem, SearchSupplier } from "@/types/api";
 
 /**
@@ -86,10 +91,7 @@ export function ProductDetailsDialog({
 
   if (!open) return null;
 
-  const category = primaryCategory(
-    product.facets.material_types,
-    product.is_packaging,
-  );
+  const category = primaryCategory(product.material_type, product.is_packaging);
   const Icon = category.icon;
 
   return createPortal(
@@ -206,6 +208,23 @@ export function ProductDetailsDialog({
                 <Badge className={cn("border-transparent", category.badge)}>
                   {category.label}
                 </Badge>
+              </Detail>
+
+              {/* What suppliers individually call it — may differ from the
+                  catalogue's own Material Type above (D14); this is the one
+                  place that breakdown is shown at all. */}
+              <Detail label="Offered as">
+                {product.facets.material_types.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {product.facets.material_types.map((type) => (
+                      <Badge key={type} variant="outline">
+                        {CATEGORY_STYLES[type]?.label ?? type}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <NotAvailable />
+                )}
               </Detail>
 
               <Detail label="Applications">
@@ -544,8 +563,9 @@ function distinct(values: (string | null)[]): string[] {
 }
 
 /** Only the spec fields this product actually carries — a bottle has no
- *  thickness, and rendering a column of dashes says nothing. */
-function specEntries(
+ *  thickness, and rendering a column of dashes says nothing. Exported because
+ *  the products table's variant breakdown renders the same spec. */
+export function specEntries(
   spec: NonNullable<import("@/types/api").PackagingSpec>,
 ): [string, string][] {
   const candidates: [string, string | null][] = [

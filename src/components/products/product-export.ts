@@ -85,9 +85,9 @@ export function productsToCsv(rows: ProductListItem[]): string {
         csvField(row.name_cn),
         csvField(row.variant),
         csvField(
-          row.facets.material_types
-            .map((type) => CATEGORY_STYLES[type]?.label ?? type)
-            .join("; "),
+          row.material_type
+            ? CATEGORY_STYLES[row.material_type]?.label ?? row.material_type
+            : "",
         ),
         csvField(row.cas_number),
         csvField(row.cas_number ? (row.cas_is_verified ? "yes" : "no") : ""),

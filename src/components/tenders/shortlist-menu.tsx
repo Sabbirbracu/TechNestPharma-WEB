@@ -21,9 +21,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
-  useAddTenderItem,
+  useAddTenderShortlist,
   useCreateTender,
-  useRemoveTenderItem,
+  useRemoveTenderShortlist,
   useTenders,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -231,8 +231,8 @@ function ShortlistPanel({
     sort: "created_at",
     order: "desc",
   });
-  const addItem = useAddTenderItem();
-  const removeItem = useRemoveTenderItem();
+  const addItem = useAddTenderShortlist();
+  const removeItem = useRemoveTenderShortlist();
   const createTender = useCreateTender();
 
   // Memoised so the empty-array fallback isn't a new identity every render,

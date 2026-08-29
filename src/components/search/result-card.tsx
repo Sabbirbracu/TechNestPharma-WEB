@@ -46,7 +46,9 @@ export function ResultCard({
   memberships?: ShortlistMembership[];
 }) {
   const { product, supplier } = row;
-  const category = supplier.material_type;
+  // The catalogue's own classification, not this one supplier's "offered as"
+  // claim — that stays in the details dialog only.
+  const category = product.material_type;
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (

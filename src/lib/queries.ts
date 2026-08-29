@@ -2,11 +2,13 @@
 
 import {
   useQuery,
+  useQueries,
   useMutation,
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
+import toast from "react-hot-toast";
+import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/lib/auth";
 import type {
   AccountSession,
@@ -33,6 +35,25 @@ import type {
   ContactUpdateInput,
   CountryRef,
   DashboardStats,
+  ExtractionResult,
+  MatchCandidate,
+  NoticeConfirmResult,
+  NoticeSource,
+  NoticeTender,
+  NoticeTenderItem,
+  NoticeTenderUpdateInput,
+  TenderItemMappingInput,
+  TenderNoticeDetail,
+  TenderNoticeListItem,
+  TenderNoticeParams,
+  TenderConfirmResult,
+  InquiryDraft,
+  InquiryPreviewInput,
+  MailboxSettings,
+  MailMessage,
+  MailSendInput,
+  MailSyncResult,
+  MailThread,
   ListParams,
   OfferCreateInput,
   OfferDetail,
@@ -72,7 +93,7 @@ import type {
   StageInput,
   TenderCreateInput,
   TenderDetail,
-  TenderItemInput,
+  TenderShortlistInput,
   TenderListItem,
   TenderListParams,
   TenderStats,
@@ -136,6 +157,28 @@ export const keys = {
     all: ["offers"] as const,
     list: (params: OfferListParams) => ["offers", "list", params] as const,
     detail: (id: number) => ["offers", "detail", id] as const,
+  },
+  /** Deliberately NOT under the `tender-notices` prefix: every notice
+   *  mutation invalidates that whole prefix, and the stored document is the
+   *  one thing on the page that never changes — refetching a 4 MB scan on
+   *  each mapping click would be pure waste. */
+  noticeDocument: (id: number) => ["tender-notice-document", id] as const,
+  tenderNotices: {
+    all: ["tender-notices"] as const,
+    list: (params: TenderNoticeParams) =>
+      ["tender-notices", "list", params] as const,
+    detail: (id: number) => ["tender-notices", "detail", id] as const,
+    sources: ["tender-notices", "sources"] as const,
+    candidates: (itemId: number) =>
+      ["tender-notices", "candidates", itemId] as const,
+  },
+  mailbox: {
+    all: ["mailbox"] as const,
+    settings: ["mailbox", "settings"] as const,
+    thread: (requestId: number) => ["mailbox", "thread", requestId] as const,
+    draft: (requestId: number) => ["mailbox", "draft", requestId] as const,
+    preview: (input: InquiryPreviewInput) =>
+      ["mailbox", "preview", input] as const,
   },
   sourcing: {
     all: ["sourcing"] as const,
@@ -671,14 +714,14 @@ export function useUpdateTender(tenderId: number) {
 
 /** Shortlists a search row onto a tender. The API is idempotent, so a double
  *  click costs a request but never an error. */
-export function useAddTenderItem() {
+export function useAddTenderShortlist() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       tenderId,
       ...payload
-    }: TenderItemInput & { tenderId: number }) =>
-      apiFetch(`/tenders/${tenderId}/items`, { method: "POST", json: payload }),
+    }: TenderShortlistInput & { tenderId: number }) =>
+      apiFetch(`/tenders/${tenderId}/shortlist`, { method: "POST", json: payload }),
     onSuccess: () => {
       // Both the membership ticks on the search page and the tender's own
       // item counts move together.
@@ -687,11 +730,11 @@ export function useAddTenderItem() {
   });
 }
 
-export function useRemoveTenderItem() {
+export function useRemoveTenderShortlist() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ tenderId, itemId }: { tenderId: number; itemId: number }) =>
-      apiFetch(`/tenders/${tenderId}/items/${itemId}`, { method: "DELETE" }),
+      apiFetch(`/tenders/${tenderId}/shortlist/${itemId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.tenders.all });
     },
@@ -1133,5 +1176,569 @@ export function useActivityLog(params: AuditLogParams) {
     queryFn: () =>
       apiFetch<Page<AuditLogEntry>>(`/activity/log${toQueryString(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+// --- Supplier mail (Gmail) ---------------------------------------------------
+//
+// Separate from the Resend path behind invites and password resets: this is
+// mail sent as a person, from the client's own address, that expects a reply.
+//
+// The recurring theme in these hooks is that `needs_reauth` is normal. The
+// mailbox is a consumer @gmail.com on a Testing-mode OAuth app, so the grant
+// expires every 7 days. The backend answers a dead grant with 409
+// `mailbox_reauth_required` rather than 401 — a 401 would send the auth layer
+// to the login screen for a problem that has nothing to do with the user's
+// own session.
+
+/** State of the supplier mailbox. Any authenticated user may read it, because
+ *  every Send button needs to know whether it should be enabled. */
+export function useMailboxSettings() {
+  return useQuery({
+    queryKey: keys.mailbox.settings,
+    queryFn: () => apiFetch<MailboxSettings>("/mailbox/settings"),
+  });
+}
+
+/** True when an error is the mailbox grant expiring rather than a real fault —
+ *  what the Reconnect banner keys off. */
+export function isMailboxReauthError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    (error.detail as { code?: string } | undefined)?.code ===
+      "mailbox_reauth_required"
+  );
+}
+
+/** Start the Google consent flow. Returns a URL rather than redirecting,
+ *  because a 307 to accounts.google.com would be followed by fetch and fail
+ *  CORS instead of moving the browser. Owner only. */
+export function useConnectMailbox() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ authorization_url: string }>("/mailbox/connect", {
+        method: "POST",
+      }),
+    onSuccess: (data) => {
+      window.location.href = data.authorization_url;
+    },
+    onError: (error) => {
+      // The server refuses up front on a misconfiguration — no client id, or
+      // a MAILBOX_TOKEN_KEY that cannot be loaded. Without this the button
+      // just went quiet, and the next thing the admin saw was nothing at all.
+      toast.error(
+        error instanceof ApiError ? error.message : "Could not start the Google sign-in",
+        { duration: 10000 },
+      );
+    },
+  });
+}
+
+/** Revoke the grant at Google. Synced messages are kept — the conversations
+ *  happened, and dropping them would take the sourcing history with them. */
+export function useDisconnectMailbox() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch("/mailbox/disconnect", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+    },
+  });
+}
+
+/** The sender name suppliers see. Owner only. */
+export function useUpdateMailboxName() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (displayName: string | null) =>
+      apiFetch("/mailbox/account", {
+        method: "PATCH",
+        json: { display_name: displayName },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+    },
+  });
+}
+
+/** The email conversation on one sourcing request. */
+export function useRequestThread(requestId: number | null) {
+  return useQuery({
+    queryKey: keys.mailbox.thread(requestId ?? 0),
+    queryFn: () => apiFetch<MailThread>(`/mailbox/requests/${requestId}/thread`),
+    enabled: requestId !== null && Number.isFinite(requestId),
+  });
+}
+
+/** The pre-filled inquiry. `enabled` is the caller's switch so the draft is
+ *  only built when the compose dialog actually opens — it is a server-side
+ *  render over the request, not something to prefetch for every row. */
+export function useInquiryDraft(requestId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.mailbox.draft(requestId ?? 0),
+    queryFn: () => apiFetch<InquiryDraft>(`/mailbox/requests/${requestId}/draft`),
+    enabled: enabled && requestId !== null && Number.isFinite(requestId),
+    // Always refetch on open: the draft reflects the request's current
+    // quantity and spec, and a stale body would send yesterday's numbers.
+    staleTime: 0,
+  });
+}
+
+/** The email an enquiry *would* send, rendered before the request is filed.
+ *
+ *  One per supplier, because each has its own greeting and address. Keyed on
+ *  the whole input, so re-ticking a checklist box the buyer had just unticked
+ *  comes back from cache instead of re-rendering server-side — the preview
+ *  should feel like it is following his cursor.
+ *
+ *  `staleTime: Infinity` is safe here: the key already contains every input
+ *  the body is derived from, so nothing can go stale without becoming a
+ *  different key. */
+export function useInquiryPreviews(
+  inputs: InquiryPreviewInput[],
+  enabled: boolean,
+) {
+  return useQueries({
+    queries: inputs.map((input) => ({
+      queryKey: keys.mailbox.preview(input),
+      queryFn: () =>
+        apiFetch<InquiryDraft>("/mailbox/inquiry-preview", {
+          method: "POST",
+          json: input,
+        }),
+      enabled,
+      staleTime: Infinity,
+      placeholderData: keepPreviousData,
+    })),
+  });
+}
+
+/** Send the inquiry. Invalidates sourcing too, because sending moves a draft
+ *  request to `sent` server-side and the board has to follow. */
+export function useSendInquiry(requestId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: MailSendInput) =>
+      apiFetch<MailMessage>(`/mailbox/requests/${requestId}/send`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Send an inquiry for a request whose id is only known at call time.
+ *
+ *  `useSendInquiry` binds one request per hook, which cannot cover the tender
+ *  dialog: it files N sourcing requests and then mails each one, and the ids
+ *  do not exist until the mutation that creates them has resolved. */
+export function useSendInquiryById() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      payload,
+    }: {
+      requestId: number;
+      payload: MailSendInput;
+    }) =>
+      apiFetch<MailMessage>(`/mailbox/requests/${requestId}/send`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Refresh one request's threads — what the detail panel calls on open. A full
+ *  sync walks every inquiry ever sent; opening one request should not pay for
+ *  that. */
+export function useSyncRequestMail(requestId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<MailSyncResult>(`/mailbox/requests/${requestId}/sync`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Pull new replies across every thread the system started. */
+export function useSyncMailbox() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<MailSyncResult>("/mailbox/sync", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Download an attachment.
+ *
+ *  Goes through fetch rather than a plain <a href> because the endpoint needs
+ *  the Authorization header — a bare link would arrive unauthenticated and
+ *  404. The blob URL is revoked on the next tick; holding it would pin the
+ *  whole file in memory for the life of the tab. */
+export async function downloadMailAttachment(
+  attachmentId: number,
+  filename: string,
+) {
+  const file = await apiFetch<Blob>(
+    `/mailbox/attachments/${attachmentId}/download`,
+    { blob: true },
+  );
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// --- Tender notices ---------------------------------------------------------
+//
+// The pipeline: upload → extract → review + map → confirm. Nothing promotes
+// itself; `useConfirmNotice` is a deliberate act, because a reference number
+// misread off a scan is a lost bid.
+
+/** The notice inbox. */
+export function useTenderNotices(params: TenderNoticeParams) {
+  return useQuery({
+    queryKey: keys.tenderNotices.list(params),
+    queryFn: () =>
+      apiFetch<Page<TenderNoticeListItem>>(
+        `/tender-notices${toQueryString(params)}`,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** One notice with every tender and requirement line — the review screen's
+ *  whole payload, deliberately in a single request. */
+export function useTenderNotice(id: number | null) {
+  return useQuery({
+    queryKey: keys.tenderNotices.detail(id ?? 0),
+    queryFn: () => apiFetch<TenderNoticeDetail>(`/tender-notices/${id}`),
+    enabled: id !== null && Number.isFinite(id),
+  });
+}
+
+/** The stored notice document, as a Blob.
+ *
+ *  Fetched rather than linked. The endpoint authenticates on the
+ *  `Authorization` header, so a bare `<a href>` or `<iframe src>` arrives
+ *  without one and 401s — the same trap `downloadMailAttachment` documents.
+ *  The caller turns this into an object URL and revokes it on unmount. */
+export function useNoticeDocument(noticeId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.noticeDocument(noticeId),
+    queryFn: () =>
+      apiFetch<Blob>(`/tender-notices/${noticeId}/document`, { blob: true }),
+    enabled,
+    // The bytes behind a notice id are immutable — re-uploading the same
+    // document is deduped server-side into the same notice.
+    staleTime: Infinity,
+  });
+}
+
+export function useNoticeSources() {
+  return useQuery({
+    queryKey: keys.tenderNotices.sources,
+    queryFn: () => apiFetch<NoticeSource[]>("/tender-notices/sources"),
+  });
+}
+
+/** Capture a notice document. Multipart, because the PDF is the point. */
+export function useUploadNotice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      file: File;
+      title?: string;
+      source_name?: string;
+      source_url?: string;
+      notice_date?: string;
+    }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      if (input.title) form.append("title", input.title);
+      if (input.source_name) form.append("source_name", input.source_name);
+      if (input.source_url) form.append("source_url", input.source_url);
+      if (input.notice_date) form.append("notice_date", input.notice_date);
+      // No content-type header: only the browser can generate the multipart
+      // boundary, and setting it by hand produces a request FastAPI cannot parse.
+      return apiFetch<TenderNoticeDetail>("/tender-notices", {
+        method: "POST",
+        body: form,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Read the document into draft tenders and suggest product matches.
+ *
+ *  Re-running REPLACES the previous run's tenders, confirmed mappings
+ *  included — a re-extraction means the first reading was wrong, and merging
+ *  two readings of one page leaves a hybrid nobody can check against the PDF. */
+export function useExtractNotice(noticeId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ExtractionResult>(`/tender-notices/${noticeId}/extract`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Promote the reviewed tenders onto the live tender board. */
+export function useConfirmNotice(noticeId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<NoticeConfirmResult>(`/tender-notices/${noticeId}/confirm`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+export function useDeleteNotice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (noticeId: number) =>
+      apiFetch(`/tender-notices/${noticeId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Alternative products for one line — the "Choose Another" list. */
+export function useItemCandidates(itemId: number | null) {
+  return useQuery({
+    queryKey: keys.tenderNotices.candidates(itemId ?? 0),
+    queryFn: () =>
+      apiFetch<MatchCandidate[]>(
+        `/tender-notices/items/${itemId}/candidates?limit=8`,
+      ),
+    enabled: itemId !== null && Number.isFinite(itemId),
+  });
+}
+
+/** Settle one line: confirm a product, or skip it. The only path that writes
+ *  `confirmed`. */
+export function useMapItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      ...payload
+    }: TenderItemMappingInput & { itemId: number }) =>
+      apiFetch<NoticeTenderItem>(`/tender-notices/items/${itemId}/mapping`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** One-click confirm of whatever the matcher proposed. */
+export function useAcceptSuggestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: number) =>
+      apiFetch<NoticeTenderItem>(`/tender-notices/items/${itemId}/accept`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** "Map All & Continue" — confirms every *suggested* line on one tender and
+ *  leaves settled ones alone. */
+export function useAcceptAllSuggestions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenderId: number) =>
+      apiFetch<{ detail: string }>(
+        `/tender-notices/tenders/${tenderId}/accept-suggestions`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Take ONE tender back off the live board.
+ *
+ *  The inverse of `useConfirmTender`: the tender becomes the notice's draft
+ *  reading again and disappears from the tender board, while its shortlisted
+ *  suppliers are kept — re-confirming tops them up rather than rebuilding
+ *  them. Invalidates the board as well as the notice, since a row leaves it. */
+export function useUnpublishTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenderId: number) =>
+      apiFetch<{ detail: string }>(
+        `/tender-notices/tenders/${tenderId}/unpublish`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/** Re-run matching over unsettled lines, after the catalogue has changed. */
+export function useRematchTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenderId: number) =>
+      apiFetch<{ detail: string }>(`/tender-notices/tenders/${tenderId}/rematch`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Add a requirement line the extractor missed. Matched on creation. */
+export function useAddNoticeItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      tenderId,
+      ...payload
+    }: { tenderId: number; raw_name: string; specification?: string }) =>
+      apiFetch<NoticeTenderItem>(`/tender-notices/tenders/${tenderId}/items`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Correct a misread line. Changing the name re-runs matching unless the line
+ *  is already confirmed. */
+export function useUpdateNoticeItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      ...payload
+    }: { itemId: number; raw_name?: string; specification?: string | null }) =>
+      apiFetch<NoticeTenderItem>(`/tender-notices/items/${itemId}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+export function useDeleteNoticeItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: number) =>
+      apiFetch(`/tender-notices/items/${itemId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Correct tender-level fields the extractor got wrong. */
+export function useUpdateNoticeTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      tenderId,
+      ...payload
+    }: NoticeTenderUpdateInput & { tenderId: number }) =>
+      apiFetch<NoticeTender>(`/tender-notices/tenders/${tenderId}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Tick exactly these suppliers on one line; untick the rest.
+ *
+ *  Sends the whole selection rather than a delta, so the call is idempotent
+ *  and two reviewers on one line do not depend on arrival order. */
+export function useSetItemSuppliers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      supplierProductIds,
+    }: {
+      itemId: number;
+      supplierProductIds: number[];
+    }) =>
+      apiFetch<NoticeTenderItem>(`/tender-notices/items/${itemId}/suppliers`, {
+        method: "POST",
+        json: { supplier_product_ids: supplierProductIds },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** Promote ONE tender and shortlist its ticked suppliers.
+ *
+ *  Separate from the notice-wide confirm because a notice's tenders are
+ *  reviewed at different speeds — two can be ready to bid on while the rest
+ *  still need mapping. */
+export function useConfirmTender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenderId: number) =>
+      apiFetch<TenderConfirmResult>(
+        `/tender-notices/tenders/${tenderId}/confirm`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
   });
 }

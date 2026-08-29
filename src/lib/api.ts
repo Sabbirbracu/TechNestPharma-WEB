@@ -58,13 +58,23 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: BodyInit;
   /** Skip attaching the in-memory access token (e.g. the login call). */
   anonymous?: boolean;
+  /**
+   * Return the raw response body as a Blob instead of parsing it.
+   *
+   * Needed for the mail-attachment download: the default path reads a
+   * non-JSON response with `res.text()`, which decodes bytes as UTF-8 and
+   * silently corrupts anything binary — a PDF downloaded that way opens as a
+   * damaged file. Kept as a flag on this wrapper rather than a bare `fetch`
+   * at the call site so blob downloads still get the 401 refresh-and-retry.
+   */
+  blob?: boolean;
   /** Internal: set once a 401 has already triggered a refresh-and-retry. */
   retried?: boolean;
 };
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { json, body, anonymous, retried, headers, ...init }: RequestOptions = {},
+  { json, body, anonymous, blob, retried, headers, ...init }: RequestOptions = {},
 ): Promise<T> {
   const finalHeaders = new Headers(headers);
   if (json !== undefined) {
@@ -92,6 +102,7 @@ export async function apiFetch<T = unknown>(
         json,
         body,
         headers,
+        blob,
         retried: true,
       });
     }
@@ -99,6 +110,12 @@ export async function apiFetch<T = unknown>(
 
   if (res.status === 204) {
     return undefined as T;
+  }
+
+  // An error response is JSON even when the happy path is binary, so the
+  // blob branch has to sit after the status check, not before it.
+  if (res.ok && blob) {
+    return (await res.blob()) as T;
   }
 
   const isJson = res.headers.get("content-type")?.includes("application/json");

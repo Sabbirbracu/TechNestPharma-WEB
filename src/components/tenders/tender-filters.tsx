@@ -66,7 +66,7 @@ export function TenderFilters({
 
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_170px_170px_220px_auto] lg:items-end">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_150px_150px_260px_auto] lg:items-end">
         <div className="relative">
           <Input
             value={draft.q}
@@ -146,7 +146,7 @@ export function TenderFilters({
           </div>
         </Field>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 lg:justify-end">
           <Button
             type="button"
             variant="ghost"

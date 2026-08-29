@@ -41,9 +41,9 @@ export function ResultRowCompact({
           <span className="text-[13px] font-bold tracking-tight text-foreground">
             {product.name_en}
           </span>
-          {supplier.material_type && (
+          {product.material_type && (
             <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary ring-1 ring-inset ring-primary/20">
-              {MATERIAL_TYPE_LABEL[supplier.material_type]}
+              {MATERIAL_TYPE_LABEL[product.material_type]}
             </span>
           )}
         </div>

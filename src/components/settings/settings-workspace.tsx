@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Bell,
@@ -31,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { TwoFactorCard } from "./two-factor-card";
 import { SessionsCard } from "./sessions-card";
 import { AvatarCard } from "./avatar-card";
+import { MailboxConnectionCard } from "@/components/mailbox/mailbox-connection-card";
 
 /** Sentence-case the role enum for display, same map the sidebar uses. */
 const ROLE_LABEL: Record<string, string> = {
@@ -39,7 +41,13 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Read only",
 };
 
-type TabKey = "account" | "security" | "notifications" | "preferences" | "system";
+type TabKey =
+  | "account"
+  | "security"
+  | "notifications"
+  | "email"
+  | "preferences"
+  | "system";
 
 const TABS: {
   key: TabKey;
@@ -50,6 +58,12 @@ const TABS: {
   { key: "account", label: "Account", description: "Profile and account details", icon: User },
   { key: "security", label: "Security", description: "Password, 2FA & sessions", icon: Shield },
   { key: "notifications", label: "Notifications", description: "Email preferences", icon: Bell },
+  {
+    key: "email",
+    label: "Email Config",
+    description: "Supplier mail & Gmail",
+    icon: Mail,
+  },
   {
     key: "preferences",
     label: "Preferences",
@@ -68,7 +82,22 @@ const TABS: {
  */
 export function SettingsWorkspace() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<TabKey>("account");
+  const [tab, setTab] = useState<TabKey>(useInitialTab());
+
+  /** Reflect the tab in the URL without a router round-trip, so a section can
+   *  be linked to — the enquiry dialog points straight at the Email Config
+   *  tab, and Gmail's OAuth callback comes back to it. `replaceState` rather
+   *  than `router.replace` because this is a view toggle, not navigation: it
+   *  should not add history entries or re-run the route. */
+  function selectTab(next: TabKey) {
+    setTab(next);
+    if (typeof window === "undefined") return;
+    const url =
+      next === "account"
+        ? window.location.pathname
+        : `${window.location.pathname}?tab=${next}`;
+    window.history.replaceState({}, "", url);
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -90,7 +119,7 @@ export function SettingsWorkspace() {
               label={entry.label}
               description={entry.description}
               icon={entry.icon}
-              onClick={() => setTab(entry.key)}
+              onClick={() => selectTab(entry.key)}
             />
           ))}
         </nav>
@@ -119,6 +148,7 @@ export function SettingsWorkspace() {
               quotationReceived={user?.notify_quotation_received ?? true}
             />
           )}
+          {tab === "email" && <MailboxConnectionCard />}
           {tab === "preferences" && (
             <EmptyState
               icon={SlidersHorizontal}
@@ -141,6 +171,17 @@ export function SettingsWorkspace() {
       </div>
     </div>
   );
+}
+
+/** The tab named in `?tab=`, or Account. Read once, as a `useState`
+ *  initialiser: the mailbox card strips the query string after reporting an
+ *  OAuth result, and a tab bound live to the URL would jump back to Account
+ *  the moment it did. */
+function useInitialTab(): TabKey {
+  const requested = useSearchParams().get("tab");
+  return TABS.some((entry) => entry.key === requested)
+    ? (requested as TabKey)
+    : "account";
 }
 
 /* -------------------------------------------------------------------------- */

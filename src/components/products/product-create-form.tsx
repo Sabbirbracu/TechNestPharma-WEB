@@ -55,6 +55,10 @@ const formSchema = z.object({
   variant: z.string(),
   cas: z.string(),
   molecular_formula: z.string(),
+  // The catalogue's own classification — "" means "Uncategorised" (null).
+  // Separate from `offer_material_type` below, which is this one supplier's
+  // own claim.
+  material_type: z.string(),
   category_ids: z.array(z.number()),
   indication_text: z.string(),
   notes: z.string(),
@@ -92,6 +96,7 @@ const EMPTY: FormValues = {
   variant: "",
   cas: "",
   molecular_formula: "",
+  material_type: "",
   category_ids: [],
   indication_text: "",
   notes: "",
@@ -198,6 +203,7 @@ export function ProductCreateForm() {
         variant: values.variant || null,
         cas: values.cas.trim() || null,
         molecular_formula: values.molecular_formula || null,
+        material_type: (values.material_type || null) as MaterialType | null,
         indication_text: values.indication_text || null,
         notes: values.notes || null,
       });
@@ -305,6 +311,17 @@ export function ProductCreateForm() {
               className="font-mono"
               {...register("molecular_formula")}
             />
+          </Field>
+
+          <Field label="Material Type">
+            <Select {...register("material_type")}>
+              <option value="">Uncategorised</option>
+              {CATEGORY_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <Field label="Indication">

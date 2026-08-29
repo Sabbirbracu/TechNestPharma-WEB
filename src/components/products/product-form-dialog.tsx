@@ -7,17 +7,20 @@ import { z } from "zod";
 import { AlertCircle, FlaskConical, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   useProduct,
   useTherapeuticCategories,
   useUpdateProduct,
 } from "@/lib/queries";
 import { ApiError } from "@/lib/api";
+import { CATEGORY_FILTER_OPTIONS } from "./product-taxonomy";
 import type {
   ProductDetail,
   ProductListItem,
   TherapeuticCategoryRef,
 } from "@/types/api";
+import type { MaterialType } from "@/types/domain";
 
 /** What the form actually reads from the row before the detail request lands
  *  — a subset of `ProductListItem` so any screen holding at least this much
@@ -25,7 +28,13 @@ import type {
  *  reshaping its data first. */
 export type EditableProductRow = Pick<
   ProductListItem,
-  "id" | "name_en" | "name_cn" | "variant" | "cas_number" | "indication_text"
+  | "id"
+  | "name_en"
+  | "name_cn"
+  | "variant"
+  | "cas_number"
+  | "indication_text"
+  | "material_type"
 >;
 
 const formSchema = z.object({
@@ -34,6 +43,9 @@ const formSchema = z.object({
   variant: z.string(),
   cas: z.string(),
   molecular_formula: z.string(),
+  // "" means "Uncategorised" (null) — the same empty-string-as-null
+  // convention `cas`/`variant` already use below.
+  material_type: z.string(),
   category_ids: z.array(z.number()),
   indication_text: z.string(),
   notes: z.string(),
@@ -57,6 +69,7 @@ function valuesFrom(
     // canonicalisation of it — the backend re-normalises whatever comes back.
     cas: detail?.cas_raw ?? detail?.cas_number ?? row.cas_number ?? "",
     molecular_formula: detail?.molecular_formula ?? "",
+    material_type: detail?.material_type ?? row.material_type ?? "",
     category_ids: (detail?.categories ?? []).map((category) => category.id),
     indication_text: detail?.indication_text ?? row.indication_text ?? "",
     notes: detail?.notes ?? "",
@@ -66,11 +79,12 @@ function valuesFrom(
 /**
  * Edit the product record itself (FR-PROD).
  *
- * Deliberately limited to fields that belong to the *substance*. Material
- * type, pharmacopoeia, country and price are all properties of a supplier's
- * offer (D14) — the same substance is an API to one supplier and an excipient
- * to another — so editing them here would mean editing every supplier's
- * answer at once. Those belong on the offer.
+ * Deliberately limited to fields that belong to the *substance*, plus the
+ * catalogue's own Material Type — its general-knowledge classification,
+ * editable here because it belongs to the product, not to any one offer.
+ * Pharmacopoeia, country, price, and what each supplier individually calls
+ * the substance ("offered as") stay on the offer (D14) — editing them here
+ * would mean editing every supplier's answer at once.
  */
 export function ProductFormDialog({
   open,
@@ -134,6 +148,7 @@ export function ProductFormDialog({
         // "" would be stored as a CAS that fails every checksum.
         cas: values.cas.trim() || null,
         molecular_formula: values.molecular_formula || null,
+        material_type: (values.material_type || null) as MaterialType | null,
         category_ids: values.category_ids,
         indication_text: values.indication_text || null,
         notes: values.notes || null,
@@ -237,6 +252,21 @@ export function ProductFormDialog({
                 className="font-mono"
                 {...register("molecular_formula")}
               />
+            </Field>
+
+            <Field label="Material Type">
+              <Select {...register("material_type")}>
+                <option value="">Uncategorised</option>
+                {CATEGORY_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-[11px] font-medium text-muted-foreground">
+                The catalogue&rsquo;s own classification. What each supplier
+                calls it individually stays on their offer.
+              </p>
             </Field>
 
             <Field label="Therapeutic class" className="sm:col-span-2">
