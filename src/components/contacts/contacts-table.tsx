@@ -441,9 +441,6 @@ function Row({
                 <Star className="size-3 shrink-0 fill-warning text-warning" aria-label="Primary" />
               )}
             </p>
-            {row.name_cn && (
-              <p className="truncate text-[11px] font-medium text-muted-foreground">{row.name_cn}</p>
-            )}
           </div>
         </div>
       </td>

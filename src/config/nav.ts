@@ -7,6 +7,7 @@ import {
   ScanLine,
   Handshake,
   Mails,
+  Inbox,
   TestTube2,
   FileText,
   Search,
@@ -23,6 +24,17 @@ export type NavItem = {
   icon: LucideIcon;
   /** SRS functional-requirement group this screen serves. */
   fr: string;
+  /**
+   * Hidden from anyone but the owner.
+   *
+   * Only the Inbox uses this today, and for a reason that is about the data
+   * rather than about seniority: it reads the client's own Gmail, which holds
+   * his personal mail alongside supplier quotations. Staff keep the per-request
+   * thread view on Sourcing, which only ever shows a conversation the ERP
+   * itself started. The API enforces this; hiding the link is the courtesy
+   * half, so nobody clicks through to a 403.
+   */
+  ownerOnly?: boolean;
 };
 
 export type NavSection = {
@@ -66,6 +78,13 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { label: "Tenders", href: "/tenders", icon: Gavel, fr: "FR-TENDER" },
       { label: "Sourcing", href: "/sourcing", icon: Mails, fr: "FR-SRC" },
+      {
+        label: "Inbox",
+        href: "/inbox",
+        icon: Inbox,
+        fr: "FR-SRC",
+        ownerOnly: true,
+      },
     ],
   },
   {

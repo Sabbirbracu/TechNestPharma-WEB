@@ -49,7 +49,6 @@ const personSchema = z.object({
   // session — that's what tells submit whether to PATCH or POST.
   id: z.number().optional(),
   name_en: z.string().min(1, "Name is required"),
-  name_cn: z.string(),
   designation: z.string(),
   department: z.string(),
   is_primary: z.boolean(),
@@ -65,7 +64,6 @@ type PersonValues = FormValues["people"][number];
 
 const blankPerson: PersonValues = {
   name_en: "",
-  name_cn: "",
   designation: "",
   department: "",
   is_primary: false,
@@ -78,7 +76,6 @@ function valuesFromContacts(contacts: CompanyContact[]): FormValues {
     people: contacts.map((c) => ({
       id: c.id,
       name_en: c.name_en,
-      name_cn: c.name_cn ?? "",
       designation: c.designation ?? "",
       department: c.department ?? "",
       is_primary: c.is_primary,
@@ -144,7 +141,6 @@ export function ContactFormDialog({
         values.people.map((person) => {
           const shared = {
             name_en: person.name_en,
-            name_cn: person.name_cn || null,
             designation: person.designation || null,
             department: person.department || null,
             is_primary: person.is_primary,
@@ -307,16 +303,6 @@ function PersonBlock({
           {personErrors?.name_en && (
             <p className="text-xs font-medium text-destructive">{personErrors.name_en.message}</p>
           )}
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-            Chinese name
-          </label>
-          <Input
-            placeholder="中文名 (optional)"
-            {...register(`people.${index}.name_cn` as const)}
-          />
         </div>
 
         <div className="space-y-1.5">

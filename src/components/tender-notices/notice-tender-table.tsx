@@ -28,6 +28,7 @@ import {
   useUnpublishTender,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { BuyerBadge } from "@/components/buyer-badge";
 import { formatDate, formatMoney, formatTime, tenderHref } from "./notice-taxonomy";
 import type { NoticeTender, TenderNoticeDetail } from "@/types/api";
 
@@ -150,8 +151,15 @@ function TenderRow({
           className="block"
         >
           {reference ? (
-            <span className="block whitespace-nowrap font-mono text-sm font-bold text-foreground group-hover:text-primary">
-              {reference}
+            <span className="flex items-baseline gap-1.5 whitespace-nowrap">
+              {/* The authority, abbreviated. Six references in one notice
+                  differ only by a serial number, so the buyer is what makes a
+                  row identifiable — and it matters more once tenders from two
+                  authorities share a screen. */}
+              <BuyerBadge buyerName={tender.buyer_name} />
+              <span className="font-mono text-sm font-bold text-foreground group-hover:text-primary">
+                {reference}
+              </span>
             </span>
           ) : (
             /* The one field that blocks the whole notice — worth saying so on

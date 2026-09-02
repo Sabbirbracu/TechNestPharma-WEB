@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import { Plus, Upload } from "lucide-react";
 import { ProductStatCards } from "@/components/products/product-stat-cards";
@@ -46,7 +47,16 @@ export default function ProductsPage() {
       </div>
 
       <ProductStatCards />
-      <ProductsTable />
+      {/* ProductsTable seeds its filters from the query string (so the
+          dashboard's category tiles can deep-link into a filtered catalogue),
+          and useSearchParams needs a boundary on a prerendered route. */}
+      <Suspense
+        fallback={
+          <div className="h-96 animate-pulse rounded-2xl border border-border/60 bg-card" />
+        }
+      >
+        <ProductsTable />
+      </Suspense>
     </div>
   );
 }

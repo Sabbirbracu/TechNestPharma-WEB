@@ -12,27 +12,40 @@ import {
   Coins,
   FlaskConical,
   Loader2,
+  MoreVertical,
+  Pencil,
   RefreshCw,
   ScanSearch,
   Search,
+  SkipForward,
   Sparkles,
+  Trash2,
   Truck,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { BuyerBadge } from "@/components/buyer-badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
 import {
   useAcceptAllSuggestions,
   useAcceptSuggestion,
   useConfirmTender,
+  useDeleteNoticeItem,
   useItemCandidates,
   useMapItem,
   useRematchTender,
   useSetItemSuppliers,
   useTenderNotice,
+  useUpdateNoticeItem,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { ItemNameCheckDialog } from "./item-name-check-dialog";
@@ -176,6 +189,12 @@ function TenderHeader({
       </Link>
 
       <div className="flex flex-wrap items-center gap-3">
+        {/* Which authority's tender this is — the reference number alone does
+            not say, and its neighbours in the notice differ only by a serial. */}
+        <BuyerBadge
+          buyerName={tender.buyer_name}
+          className="rounded-lg px-2 py-1 text-sm"
+        />
         <h1 className="font-mono text-2xl font-bold tracking-tight text-foreground">
           {tender.reference_no ?? tender.name}
         </h1>
@@ -412,8 +431,11 @@ function TenderItems({
 function ItemRow({ item }: { item: NoticeTenderItem }) {
   const [picking, setPicking] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const accept = useAcceptSuggestion();
   const map = useMapItem();
+  const removeItem = useDeleteNoticeItem();
 
   const confidence = item.match_confidence ? Number(item.match_confidence) : null;
   const settled =
@@ -426,6 +448,30 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
           initialQuery={item.matched_product.name_en}
           open={searching}
           onClose={() => setSearching(false)}
+        />
+      )}
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete this line?"
+          description={
+            <>
+              Line {String(item.line_no).padStart(2, "0")} —{" "}
+              <strong className="font-semibold text-foreground">
+                {item.raw_name}
+              </strong>{" "}
+              will be removed from this tender. Use this for a line the
+              extractor invented; to keep a real line you do not trade, skip it
+              instead.
+            </>
+          }
+          confirmLabel="Delete line"
+          busy={removeItem.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() =>
+            removeItem.mutate(item.id, {
+              onSuccess: () => setConfirmingDelete(false),
+            })
+          }
         />
       )}
       <tr className="border-b border-border/40 align-top transition-colors last:border-0 hover:bg-secondary/30">
@@ -517,6 +563,9 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
         </td>
         <td className="px-3 py-3">
           <div className="flex items-center gap-1.5">
+            {/* The tick stays a button of its own: confirming the matcher's
+                suggestion is the one action done to most rows in a pass, and
+                burying it in a menu would cost a click on every line. */}
             {item.mapping_status === "suggested" && (
               <button
                 type="button"
@@ -532,28 +581,79 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
                 )}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setPicking((value) => !value)}
-              title="Choose another product"
-              className="inline-flex size-8 items-center justify-center rounded-lg border transition border-border/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
+
+            <DropdownMenu
+              trigger={(props) => (
+                <button
+                  type="button"
+                  {...props}
+                  aria-label={`More actions for line ${item.line_no}`}
+                  className="inline-flex size-8 items-center justify-center rounded-lg border border-border/60 text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  <MoreVertical className="size-4" strokeWidth={2.25} />
+                </button>
+              )}
             >
-              <Search className="size-4" />
-            </button>
-            {!settled && (
-              <button
-                type="button"
-                onClick={() => map.mutate({ itemId: item.id, skip: true })}
-                disabled={map.isPending}
-                title="Skip — we do not trade this"
-                className="inline-flex size-8 items-center justify-center rounded-lg border transition border-destructive/30 text-destructive hover:bg-destructive/10"
-              >
-                <X className="size-4" strokeWidth={2.5} />
-              </button>
-            )}
+              {(close) => (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEditing(true);
+                      close();
+                    }}
+                  >
+                    <Pencil />
+                    Edit item
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setPicking(true);
+                      close();
+                    }}
+                  >
+                    <Search />
+                    Choose another product
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem
+                    disabled={settled || map.isPending}
+                    onClick={() => {
+                      map.mutate({ itemId: item.id, skip: true });
+                      close();
+                    }}
+                  >
+                    <SkipForward />
+                    {item.mapping_status === "skipped" ? "Already skipped" : "Skip"}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    destructive
+                    disabled={removeItem.isPending}
+                    onClick={() => {
+                      setConfirmingDelete(true);
+                      close();
+                    }}
+                  >
+                    <Trash2 />
+                    Delete item
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenu>
           </div>
         </td>
       </tr>
+
+      {editing && (
+        <tr className="border-b border-border/40 bg-secondary/30">
+          <td colSpan={8} className="px-3 py-3">
+            <ItemEditor item={item} onDone={() => setEditing(false)} />
+          </td>
+        </tr>
+      )}
       {picking && (
         <tr className="border-b border-border/40 bg-secondary/30">
           <td colSpan={8} className="px-3 py-3">
@@ -663,6 +763,106 @@ function SupplierPicker({ item }: { item: NoticeTenderItem }) {
 }
 
 /** "Choose Another" — the alternatives the matcher found, ranked. */
+/**
+ * Correct a misread line, inline under the row it belongs to.
+ *
+ * Only the two columns that come straight off the notice are editable — the
+ * raw name and the specification. Everything else in the row is derived: the
+ * match, its confidence and the supplier list are the matcher's output, and
+ * they are changed by re-matching, not by typing over them.
+ *
+ * Saving a changed `raw_name` makes the backend re-run matching (unless the
+ * line is already confirmed), so the suggestion and confidence on screen can
+ * both change when this closes. That is the point: the old suggestion was
+ * drawn from text that has just been corrected.
+ */
+function ItemEditor({
+  item,
+  onDone,
+}: {
+  item: NoticeTenderItem;
+  onDone: () => void;
+}) {
+  const update = useUpdateNoticeItem();
+  const [rawName, setRawName] = useState(item.raw_name);
+  const [specification, setSpecification] = useState(item.specification ?? "");
+
+  const trimmedName = rawName.trim();
+  const trimmedSpec = specification.trim();
+  const changed =
+    trimmedName !== item.raw_name || trimmedSpec !== (item.specification ?? "");
+  const rematches = trimmedName !== item.raw_name && item.mapping_status !== "confirmed";
+
+  function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!trimmedName || !changed) return;
+    update.mutate(
+      {
+        itemId: item.id,
+        raw_name: trimmedName,
+        specification: trimmedSpec || null,
+      },
+      { onSuccess: onDone },
+    );
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <label className="min-w-0 flex-1 space-y-1">
+          <span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+            Raw Item Name
+          </span>
+          <Input
+            value={rawName}
+            onChange={(event) => setRawName(event.target.value)}
+            maxLength={500}
+            required
+            autoFocus
+            aria-label="Raw item name"
+          />
+        </label>
+
+        <label className="w-full space-y-1 sm:w-56">
+          <span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+            Specification
+          </span>
+          <Input
+            value={specification}
+            onChange={(event) => setSpecification(event.target.value)}
+            maxLength={100}
+            placeholder="—"
+            aria-label="Specification"
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" size="sm" disabled={!trimmedName || !changed || update.isPending}>
+          {update.isPending ? <Loader2 className="animate-spin" /> : <Check />}
+          Save changes
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+
+        {rematches && (
+          <span className="text-[11px] font-medium text-muted-foreground">
+            Changing the name re-runs matching for this line.
+          </span>
+        )}
+        {update.error && (
+          <span className="text-[11px] font-semibold text-destructive">
+            {update.error instanceof Error
+              ? update.error.message
+              : "Could not save this line."}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
 function CandidatePicker({
   item,
   onDone,

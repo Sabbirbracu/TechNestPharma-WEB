@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BuyerBadge } from "@/components/buyer-badge";
 import {
   AlertCircle,
   ArrowLeft,
@@ -141,9 +142,13 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
             </h1>
             <TenderStatusBadge status={tender.status} />
           </div>
-          <p className="mt-1 text-sm font-medium text-muted-foreground">
-            {[tender.reference_no, tender.buyer_name].filter(Boolean).join(" · ") ||
-              "No reference number on file"}
+          {/* Badge rather than " · EDCL" appended to the reference, so the
+              authority reads the same here as on the notice screens. */}
+          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <BuyerBadge buyerName={tender.buyer_name} />
+            <span>
+              {tender.reference_no ?? "No reference number on file"}
+            </span>
           </p>
         </div>
 

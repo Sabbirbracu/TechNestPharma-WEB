@@ -6,6 +6,7 @@ import {
   Download,
   Loader2,
   Mail,
+  MoreHorizontal,
   Paperclip,
   RefreshCw,
 } from "lucide-react";
@@ -19,7 +20,8 @@ import {
   useSyncRequestMail,
 } from "@/lib/queries";
 import { ApiError } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { baseSubject, splitQuotedReply } from "@/lib/mail-quote";
+import { byNewest, cn } from "@/lib/utils";
 import type { MailAttachment, MailMessage } from "@/types/api";
 
 /**
@@ -33,19 +35,74 @@ import type { MailAttachment, MailMessage } from "@/types/api";
  * through the backend on click (decision 2026-08-24). Inline images —
  * signature logos, almost always — are hidden behind a toggle rather than
  * dropped, so a genuine inline spec photo is still reachable.
+ *
+ * Newest message first. The API returns the thread oldest-first, which is the
+ * right order for reading a conversation from the start and the wrong one for
+ * a buyer opening an enquiry — what they came for is the latest reply, and
+ * burying it under a scroll of their own sent mail is the problem this screen
+ * exists to fix.
+ *
+ * Two things every message in a thread repeats are dropped from the cards and
+ * shown once above them: the subject (after the first reply it is only ever
+ * "Re: " plus what the card header already says) and the quoted copy of the
+ * message being answered. A supplier replying "Not available" was rendering
+ * as our own forty-line inquiry with the answer lost at the top of it.
  */
+/** What a reply needs in order to continue a conversation rather than start
+ *  one. Null when the enquiry has not been sent yet — there is no thread to
+ *  reply into, so the caller opens the enquiry composer instead. */
+export type ThreadReplyContext = {
+  to: string;
+  subject: string;
+  threadId: string;
+};
+
 export function MailThread({
   requestId,
   onReply,
 }: {
   requestId: number;
-  onReply?: () => void;
+  onReply?: (context: ThreadReplyContext | null) => void;
 }) {
   const { data: settings } = useMailboxSettings();
   const { data, isPending } = useRequestThread(requestId);
   const sync = useSyncRequestMail(requestId);
 
-  const messages = data?.messages ?? [];
+  // Sorted here rather than trusting the API's order, so the newest-first
+  // guarantee holds even if the endpoint's ordering ever changes.
+  const messages = [...(data?.messages ?? [])].sort((a, b) =>
+    byNewest(a.occurred_at, b.occurred_at),
+  );
+
+  // Taken from the oldest message, which carries the subject as we wrote it —
+  // before the replies stacked Re: prefixes on the front of it.
+  const threadSubject = baseSubject(
+    messages[messages.length - 1]?.subject ?? messages[0]?.subject,
+  );
+
+  // Who a reply goes to: the supplier, read off their own latest message
+  // rather than off the request, so a colleague replying from a second address
+  // is answered where they actually wrote from. `messages` is newest-first.
+  const latestInbound = messages.find((item) => item.direction === "inbound");
+  const counterparty =
+    latestInbound?.counterparty ??
+    messages.find((item) => item.counterparty)?.counterparty ??
+    "";
+
+  // Null until there is both a thread and somebody in it to answer. The button
+  // then reads "Send inquiry" and opens the enquiry composer, which is the
+  // right tool for the first message — it carries the checklist the supplier
+  // has to answer line by line.
+  const replyContext: ThreadReplyContext | null =
+    messages.length && data?.thread_id && counterparty
+      ? {
+          to: counterparty,
+          subject: threadSubject.toLowerCase().startsWith("re:")
+            ? threadSubject
+            : `Re: ${threadSubject || "(no subject)"}`,
+          threadId: data.thread_id,
+        }
+      : null;
 
   const runSync = () => {
     sync.mutate(undefined, {
@@ -84,13 +141,20 @@ export function MailThread({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-medium text-muted-foreground">
-          {messages.length === 0
-            ? "No email on this request yet."
-            : `${messages.length} message${messages.length === 1 ? "" : "s"}`}
-        </p>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          {threadSubject && (
+            <p className="truncate text-sm font-bold text-foreground">
+              {threadSubject}
+            </p>
+          )}
+          <p className="text-xs font-medium text-muted-foreground">
+            {messages.length === 0
+              ? "No email on this request yet."
+              : `${messages.length} message${messages.length === 1 ? "" : "s"} · newest first`}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {messages.length > 0 && (
             <Button
               type="button"
@@ -104,7 +168,11 @@ export function MailThread({
             </Button>
           )}
           {onReply && (
-            <Button type="button" size="sm" onClick={onReply}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onReply(replyContext)}
+            >
               <Mail />
               {messages.length ? "Reply" : "Send inquiry"}
             </Button>
@@ -121,9 +189,17 @@ export function MailThread({
           </p>
         </div>
       ) : (
-        <ol className="space-y-2">
-          {messages.map((message) => (
-            <MessageCard key={message.id} message={message} />
+        <ol className="space-y-2.5">
+          {messages.map((message, index) => (
+            // The newest message is open on arrival whichever way it went.
+            // Previously only inbound mail opened, which left a thread we had
+            // just replied to showing nothing but collapsed headers.
+            <MessageCard
+              key={message.id}
+              message={message}
+              threadSubject={threadSubject}
+              defaultOpen={index === 0}
+            />
           ))}
         </ol>
       )}
@@ -131,45 +207,67 @@ export function MailThread({
   );
 }
 
-function MessageCard({ message }: { message: MailMessage }) {
+function MessageCard({
+  message,
+  threadSubject,
+  defaultOpen,
+}: {
+  message: MailMessage;
+  threadSubject: string;
+  defaultOpen: boolean;
+}) {
   const inbound = message.direction === "inbound";
-  // Inbound replies matter most and start open; our own sent mail is usually
-  // something the reader wrote and does not need to re-read.
-  const [open, setOpen] = useState(inbound);
+  const [open, setOpen] = useState(defaultOpen);
   const [showInline, setShowInline] = useState(false);
+  const [showQuoted, setShowQuoted] = useState(false);
 
   const real = message.attachments.filter((a) => !a.is_inline);
   const inline = message.attachments.filter((a) => a.is_inline);
   const visible = showInline ? [...real, ...inline] : real;
 
+  const { reply, quoted } = splitQuotedReply(message.body);
+
+  // The subject earns a line only when the sender changed it mid-thread.
+  // Otherwise it is the thread subject with a Re: on the front, already read
+  // once above the list.
+  const subject = baseSubject(message.subject);
+  const ownSubject = subject && subject !== threadSubject ? subject : null;
+
   return (
     <li
       className={cn(
-        "overflow-hidden rounded-xl border",
-        inbound ? "border-primary/25 bg-primary/[0.03]" : "border-border/60 bg-card",
+        // Direction is carried by the chip's words first and its colour
+        // second; the left edge just makes a long thread scannable without
+        // reading either.
+        "overflow-hidden rounded-xl border border-l-[3px] border-border/60 bg-card",
+        inbound ? "border-l-tile-green" : "border-l-tile-blue",
       )}
     >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-start gap-3 p-3 text-left transition hover:bg-secondary/40"
+        className="flex w-full items-start gap-3 p-3.5 text-left transition hover:bg-secondary/40"
       >
         <span
           className={cn(
-            "mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
+            "mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
             inbound
-              ? "bg-primary/10 text-primary ring-primary/20"
-              : "bg-secondary text-secondary-foreground ring-border/60",
+              ? "bg-tile-green-bg text-tile-green ring-tile-green/25"
+              : "bg-tile-blue-bg text-tile-blue ring-tile-blue/25",
           )}
         >
           {inbound ? "Received" : "Sent"}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-bold text-foreground">
-            {message.subject ?? "(no subject)"}
+          <span className="block truncate text-sm font-bold text-foreground">
+            {message.counterparty ?? "—"}
           </span>
-          <span className="mt-0.5 block truncate text-[11px] font-medium text-muted-foreground">
-            {message.counterparty ?? "—"} ·{" "}
+          {ownSubject && (
+            <span className="mt-0.5 block truncate text-xs font-semibold text-foreground">
+              {ownSubject}
+            </span>
+          )}
+          <span className="mt-0.5 block truncate text-xs font-medium text-muted-foreground">
             {new Date(message.occurred_at).toLocaleString()}
           </span>
         </span>
@@ -188,10 +286,36 @@ function MessageCard({ message }: { message: MailMessage }) {
       </button>
 
       {open && (
-        <div className="border-t border-border/60 px-3 pb-3 pt-2.5">
-          <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">
-            {message.body?.trim() || "(no message body)"}
+        <div className="border-t border-border/60 px-3.5 pb-3.5 pt-3">
+          <pre className="max-w-3xl whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground">
+            {reply || "(no message body)"}
           </pre>
+
+          {/* The quoted conversation is one click away rather than gone: the
+              split is a heuristic over five mail clients, and a reply typed
+              inline between our questions still lives down here. */}
+          {quoted && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setShowQuoted((value) => !value)}
+                aria-expanded={showQuoted}
+                title={showQuoted ? "Hide quoted text" : "Show quoted text"}
+                className="inline-flex items-center rounded-md border border-border/60 bg-secondary/60 px-1.5 py-0.5 text-muted-foreground transition hover:bg-secondary"
+              >
+                <MoreHorizontal className="size-3.5" />
+                <span className="sr-only">
+                  {showQuoted ? "Hide quoted text" : "Show quoted text"}
+                </span>
+              </button>
+
+              {showQuoted && (
+                <pre className="mt-2 max-w-3xl border-l-2 border-border pl-3 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-muted-foreground">
+                  {quoted}
+                </pre>
+              )}
+            </div>
+          )}
 
           {visible.length > 0 && (
             <ul className="mt-3 space-y-1.5 border-t border-border/60 pt-3">

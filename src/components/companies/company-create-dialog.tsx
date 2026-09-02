@@ -30,7 +30,6 @@ const LEAD_SOURCE_OPTIONS = [
 
 const formSchema = z.object({
   name_en: z.string().min(1, "Name is required"),
-  name_cn: z.string(),
   short_name: z.string(),
   company_type: z.enum(
     COMPANY_TYPE_OPTIONS.map((o) => o.value) as [string, ...string[]],
@@ -49,7 +48,6 @@ type FormValues = z.infer<typeof formSchema>;
 
 const EMPTY: FormValues = {
   name_en: "",
-  name_cn: "",
   short_name: "",
   company_type: "manufacturer",
   lead_source: "trade_fair",
@@ -108,7 +106,6 @@ export function CompanyCreateDialog({
     try {
       const result = await createCompany.mutateAsync({
         name_en: values.name_en,
-        name_cn: values.name_cn || null,
         short_name: values.short_name || null,
         company_type: values.company_type as "manufacturer",
         lead_source: values.lead_source as "trade_fair",
@@ -197,14 +194,9 @@ export function CompanyCreateDialog({
             <Input {...register("name_en")} autoFocus />
           </Field>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Chinese name">
-              <Input {...register("name_cn")} />
-            </Field>
-            <Field label="Short name">
-              <Input {...register("short_name")} placeholder="HISUN" />
-            </Field>
-          </div>
+          <Field label="Short name">
+            <Input {...register("short_name")} placeholder="HISUN" />
+          </Field>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Type">

@@ -1,9 +1,15 @@
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Loader2, ScanLine } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Pencil, ScanLine, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
-import { useConfirmNotice, useExtractNotice } from "@/lib/queries";
+import {
+  useConfirmNotice,
+  useExtractNotice,
+  useUpdateNotice,
+} from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import {
   NOTICE_STATUS_LABEL,
@@ -22,6 +28,7 @@ export function Header({
 }) {
   const extract = useExtractNotice(notice.id);
   const confirm = useConfirmNotice(notice.id);
+  const [editingTitle, setEditingTitle] = useState(false);
 
   const runExtract = () =>
     extract.mutate(undefined, {
@@ -64,9 +71,26 @@ export function Header({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {notice.title}
-            </h1>
+            {editingTitle ? (
+              <TitleEditor notice={notice} onDone={() => setEditingTitle(false)} />
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  {notice.title}
+                </h1>
+                {/* The title defaults to the uploaded filename, which is rarely
+                    what anyone wants to read it by. */}
+                <button
+                  type="button"
+                  onClick={() => setEditingTitle(true)}
+                  aria-label="Rename this notice"
+                  title="Rename this notice"
+                  className="inline-flex size-7 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition hover:border-border hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  <Pencil className="size-3.5" strokeWidth={2.25} />
+                </button>
+              </>
+            )}
             <span
               className={cn(
                 "rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset",
@@ -148,5 +172,75 @@ export function Header({
         </div>
       </div>
     </header>
+  );
+}
+
+/** Rename a notice in place.
+ *
+ *  The title starts life as the uploaded file's name — "EDCL_notice_aug15
+ *  (2)" and the like — so this is less an edit than the first chance to give
+ *  the notice a name a person would recognise it by. Only the title: the
+ *  source and dates are facts read off the document, corrected on the tenders
+ *  themselves rather than here.
+ */
+function TitleEditor({
+  notice,
+  onDone,
+}: {
+  notice: TenderNoticeDetail;
+  onDone: () => void;
+}) {
+  const update = useUpdateNotice();
+  const [title, setTitle] = useState(notice.title);
+  const trimmed = title.trim();
+
+  function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!trimmed) return;
+    if (trimmed === notice.title) {
+      onDone();
+      return;
+    }
+    update.mutate(
+      { noticeId: notice.id, title: trimmed },
+      {
+        onSuccess: () => {
+          toast.success("Notice renamed.");
+          onDone();
+        },
+        onError: (error) =>
+          toast.error(
+            error instanceof ApiError ? error.message : "Could not rename",
+            { duration: 7000 },
+          ),
+      },
+    );
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-wrap items-center gap-2">
+      <Input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        maxLength={300}
+        required
+        autoFocus
+        aria-label="Notice title"
+        // Escape abandons the edit, which is what Escape means in a field
+        // that opened over the thing it is editing.
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onDone();
+        }}
+        className="h-9 w-full min-w-0 text-lg font-bold sm:w-[28rem]"
+      />
+      <Button type="submit" size="sm" disabled={!trimmed || update.isPending}>
+        {update.isPending ? <Loader2 className="animate-spin" /> : <Check />}
+        Save
+      </Button>
+      <Button type="button" size="sm" variant="outline" onClick={onDone}>
+        <X />
+        Cancel
+      </Button>
+    </form>
   );
 }

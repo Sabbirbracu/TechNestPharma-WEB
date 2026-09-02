@@ -65,7 +65,6 @@ const formSchema = z.object({
 
   // New-company fields — only validated when `company_mode` is "new".
   new_company_name_en: z.string(),
-  new_company_name_cn: z.string(),
   new_company_short_name: z.string(),
   new_company_type: z.string(),
   new_company_lead_source: z.string(),
@@ -101,7 +100,6 @@ const EMPTY: FormValues = {
   indication_text: "",
   notes: "",
   new_company_name_en: "",
-  new_company_name_cn: "",
   new_company_short_name: "",
   new_company_type: "manufacturer",
   new_company_lead_source: "trade_fair",
@@ -182,7 +180,6 @@ export function ProductCreateForm() {
       } else {
         const result = await createCompany.mutateAsync({
           name_en: values.new_company_name_en,
-          name_cn: values.new_company_name_cn || null,
           short_name: values.new_company_short_name || null,
           company_type: values.new_company_type as CompanyType,
           lead_source: values.new_company_lead_source as LeadSource,
@@ -411,9 +408,6 @@ export function ProductCreateForm() {
                     {errors.new_company_name_en.message}
                   </p>
                 )}
-              </Field>
-              <Field label="Chinese name">
-                <Input placeholder="中文名" {...register("new_company_name_cn")} />
               </Field>
               <Field label="Short name">
                 <Input placeholder="HISUN" {...register("new_company_short_name")} />

@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ import {
 } from "./product-export";
 import {
   applicationLabel,
+  CATEGORY_STYLES,
   flagEmoji,
   primaryCategory,
 } from "./product-taxonomy";
@@ -124,8 +126,44 @@ function viewModeOf(isPackaging: ProductFilterValues["isPackaging"]): ProductVie
  *  show a blended, less useful column set. */
 const DEFAULT_FILTERS: ProductFilterValues = { ...EMPTY_FILTERS, isPackaging: "false" };
 
+/**
+ * Seed the filters from the query string, so a link can land on a filtered
+ * catalogue — the dashboard's category tiles do exactly this.
+ *
+ * Only recognised values are honoured; anything else falls back to the default
+ * rather than putting the table into a state the filter bar cannot show. Note
+ * `?is_packaging=true` is the way to ask for packaging, not
+ * `?material_type=packaging_material` — packaging is identified by a spec row
+ * and has its own toggle (D14), and the material-type picker deliberately omits
+ * it.
+ */
+function filtersFromParams(params: URLSearchParams): ProductFilterValues {
+  const materialType = params.get("material_type");
+
+  // Both spellings of "show me packaging" land on the Product Type toggle. The
+  // category picker has no packaging_material option to select, so honouring it
+  // as a material type would leave the bar unable to show the active filter.
+  if (params.get("is_packaging") === "true" || materialType === "packaging_material") {
+    return { ...EMPTY_FILTERS, isPackaging: "true" };
+  }
+
+  if (materialType && materialType in CATEGORY_STYLES) {
+    return {
+      ...DEFAULT_FILTERS,
+      materialType: materialType as ProductFilterValues["materialType"],
+    };
+  }
+
+  return DEFAULT_FILTERS;
+}
+
 export function ProductsTable() {
-  const [filters, setFilters] = useState<ProductFilterValues>(DEFAULT_FILTERS);
+  const searchParams = useSearchParams();
+  // Read once, as the initial state: after this the filter bar owns the value,
+  // so re-rendering never yanks a filter the user just changed back to the URL's.
+  const [filters, setFilters] = useState<ProductFilterValues>(() =>
+    filtersFromParams(new URLSearchParams(searchParams.toString())),
+  );
   const [sort, setSort] = useState<SortValue>("name_en:asc");
   const [view, setView] = useState<"list" | "grid">("list");
   const [page, setPage] = useState(1);

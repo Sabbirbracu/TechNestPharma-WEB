@@ -25,7 +25,6 @@ const CHANNEL_OPTIONS = [
 
 const formSchema = z.object({
   name_en: z.string().min(1, "Name is required"),
-  name_cn: z.string(),
   designation: z.string(),
   department: z.string(),
   is_primary: z.boolean(),
@@ -41,7 +40,6 @@ type FormValues = z.infer<typeof formSchema>;
 
 const EMPTY: FormValues = {
   name_en: "",
-  name_cn: "",
   designation: "",
   department: "",
   is_primary: false,
@@ -96,7 +94,6 @@ export function AddContactDialog({
       await createContact.mutateAsync({
         company_id: company.id,
         name_en: values.name_en,
-        name_cn: values.name_cn || null,
         designation: values.designation || null,
         department: values.department || null,
         is_primary: values.is_primary,
@@ -180,14 +177,7 @@ export function AddContactDialog({
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                Chinese name
-              </label>
-              <Input placeholder="中文名 (optional)" {...register("name_cn")} />
-            </div>
-
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
                 Designation
               </label>

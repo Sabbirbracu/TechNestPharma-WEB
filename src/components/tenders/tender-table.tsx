@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { BuyerBadge } from "@/components/buyer-badge";
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -342,8 +343,14 @@ function Row({
             >
               {row.name}
             </p>
-            <p className="truncate text-xs font-medium text-muted-foreground">
-              {row.reference_no ? `Ref: ${row.reference_no}` : "No reference"}
+            {/* The buyer rides with the reference: EDCL's tender numbers
+                differ only by a serial, so the reference alone does not
+                identify a row once several authorities share the board. */}
+            <p className="flex items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
+              <BuyerBadge buyerName={row.buyer_name} />
+              <span className="truncate">
+                {row.reference_no ? `Ref: ${row.reference_no}` : "No reference"}
+              </span>
             </p>
           </div>
         </Link>

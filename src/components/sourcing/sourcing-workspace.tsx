@@ -1,25 +1,42 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useSearchParams } from "next/navigation";
+import toast from "react-hot-toast";
 import {
   PAGE_SIZES,
   ResultsPagination,
 } from "@/components/search/results-pagination";
-import { useSourcingRequests } from "@/lib/queries";
+import {
+  isMailboxReauthError,
+  useMailboxSettings,
+  useSourcingPipeline,
+  useSourcingRequest,
+  useSourcingRequests,
+  useSyncMailbox,
+} from "@/lib/queries";
 import { SourcingDetailPanel } from "./sourcing-detail-panel";
 import {
   EMPTY_SOURCING_FILTERS,
+  hasActiveFilters,
   SourcingFilters,
+  type FacetOption,
   type SourcingFilterValues,
 } from "./sourcing-filters";
+import { SourcingHeader } from "./sourcing-header";
 import { SourcingPipelineStrip } from "./sourcing-pipeline";
-import { groupSourcingByProduct, SourcingTable } from "./sourcing-table";
+import {
+  FollowUpsCard,
+  QuickActionsCard,
+  RecentInboxCard,
+} from "./sourcing-rail";
+import { groupSourcing, SourcingTable, type GroupBy } from "./sourcing-table";
 import {
   PIPELINE_STAGES,
   formatDate,
+  isClosed,
   referenceOf,
+  relativeTime,
   type StageKey,
 } from "./sourcing-taxonomy";
 import type {
@@ -28,50 +45,133 @@ import type {
   SourcingStatus,
 } from "@/types/api";
 
+/**
+ * Supplier outreach (FR-SRC).
+ *
+ * The screen answers one question — *what needs me next?* — at three
+ * magnifications: the strip counts the pipeline, the rail names the specific
+ * things waiting, and the table gives every row a button saying what to do
+ * with it.
+ *
+ * It stacks rather than splitting into a column: the counters, then the three
+ * attention cards, then the list at the full width of the screen. The table is
+ * the payload and a permanent side rail would tax every row of it to keep four
+ * items visible.
+ *
+ * The three cards' queries are deliberately not the table's. They must keep
+ * answering "is anything waiting on me" while the reader narrows the table to
+ * one supplier, so they run unfiltered and are not driven by the filter state.
+ */
+
+/** How often the list re-checks the server for replies that landed elsewhere.
+ *
+ *  Polling rather than sockets: the useful granularity here is "before I next
+ *  look", not "instantly", and two minutes of staleness on an email thread is
+ *  invisible. Paused while the tab is hidden, so a screen left open overnight
+ *  is not still asking.
+ *
+ *  Note this only refreshes what the *server* already knows. Making the server
+ *  itself pull from Gmail on a schedule is the background-worker slice; until
+ *  that lands, "Sync now" is what actually reaches out to Google. */
+const POLL_MS = 120_000;
+
+/** `/sourcing/requests` caps a page at 100 (settings.max_page_size). Grouped
+ *  view fetches one such page and paginates the *groups* client-side, since
+ *  the API paginates requests, not products. */
+const GROUPING_FETCH_SIZE = 100;
+
 export function SourcingWorkspace() {
   const [filters, setFilters] = useState<SourcingFilterValues>(
     EMPTY_SOURCING_FILTERS,
   );
-  const [stage, setStage] = useState<StageKey | null>(null);
   const [sort, setSort] = useState("updated_at:desc");
   const [view, setView] = useState<"list" | "grid">("list");
+  const [groupBy, setGroupBy] = useState<GroupBy>("product");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [selected, setSelected] = useState<SourcingRequestListItem | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  // Deep link from a notification: /sourcing?open=<id>. The row is fetched
+  // rather than looked up in the current page, because the enquiry a
+  // notification is about is usually not on whatever page happens to be
+  // loaded — and `SourcingRequestDetail` is a superset of the list row, so the
+  // panel takes it as-is.
+  const deepLinkId = Number(useSearchParams().get("open")) || null;
+  const { data: deepLinked } = useSourcingRequest(deepLinkId);
+  // Which deep link has already been dismissed. Derived rather than synced
+  // into `selected` by an effect: the query string outlives the panel, so
+  // copying it into state would reopen the panel on the very next render.
+  const [dismissedDeepLink, setDismissedDeepLink] = useState<number | null>(null);
+
+  const openRequest =
+    selected ??
+    (deepLinkId !== null && deepLinkId !== dismissedDeepLink
+      ? deepLinked ?? null
+      : null);
+
+  const closePanel = () => {
+    setSelected(null);
+    if (deepLinkId !== null) setDismissedDeepLink(deepLinkId);
+  };
+
   const [sortField, sortOrder] = sort.split(":") as [string, "asc" | "desc"];
 
-  // "Closed" covers four statuses, and the API filters by one. Multi-status
-  // filtering would need a repeated query parameter and matching backend
-  // support; until then the grouped stage narrows to its first status and the
-  // strip stays the honest count.
-  const stageStatuses = stage
-    ? PIPELINE_STAGES.find((entry) => entry.key === stage)?.statuses ?? []
-    : [];
+  const { data: mailbox } = useMailboxSettings();
+  const syncMailbox = useSyncMailbox();
+  const { data: pipeline, isPending: pipelinePending } = useSourcingPipeline({
+    refetchInterval: POLL_MS,
+  });
 
-  // Table view groups by product, and the API paginates requests, not
-  // products — so table view fetches a flat page big enough to hold every
-  // matching request (100 = `/sourcing/requests`' own ceiling,
-  // settings.max_page_size) and paginates the *groups* client-side instead,
-  // the same split the tender detail page's shortlist table already uses.
+  // Two of the three attention filters map cleanly onto API parameters, so
+  // they narrow server-side and pagination stays honest. "Awaiting reply" has
+  // no equivalent — it is derived from the thread — and is applied below over
+  // the fetched rows, the same client-side pass grouping already does.
+  const today = new Date().toISOString().slice(0, 10);
+  const attentionStatus: SourcingStatus | undefined =
+    filters.attention === "unreviewed_quotations"
+      ? "quotation_received"
+      : undefined;
+
+  // Grouping and the attention filters both narrow on the client, so either
+  // one means fetching the whole set and paginating here. Otherwise the card
+  // view lets the API do both.
   const isGrouped = view === "list";
+  const clientPaginated = isGrouped || filters.attention !== null;
 
   const params: SourcingRequestParams = {
     q: filters.q || undefined,
-    status: stageStatuses.length === 1 ? (stageStatuses[0] as SourcingStatus) : undefined,
+    status: attentionStatus ?? (filters.status || undefined),
+    company_id: filters.companyId ?? undefined,
+    tender_id: filters.tenderId ?? undefined,
+    follow_up_before:
+      filters.attention === "overdue_follow_ups" ? today : undefined,
     untendered:
       filters.untendered === "" ? undefined : filters.untendered === "true",
     sort: sortField,
     order: sortOrder,
-    page: isGrouped ? 1 : page,
-    size: isGrouped ? 100 : pageSize,
+    page: clientPaginated ? 1 : page,
+    size: clientPaginated ? GROUPING_FETCH_SIZE : pageSize,
   };
 
-  const { data, isFetching, error } = useSourcingRequests(params);
-  const rows = useMemo(() => data?.items ?? [], [data]);
+  const { data, isFetching, error } = useSourcingRequests(params, {
+    refetchInterval: POLL_MS,
+  });
 
-  const groups = useMemo(() => groupSourcingByProduct(rows), [rows]);
+  const rows = useMemo(() => {
+    const items = data?.items ?? [];
+    if (filters.attention === "awaiting_reply") {
+      return items.filter((row) => row.awaiting_us && !isClosed(row.status));
+    }
+    if (filters.attention === "overdue_follow_ups") {
+      // `follow_up_before` catches the dates but not the pipeline: a cancelled
+      // enquiry with a stale follow-up date is not work.
+      return items.filter((row) => !isClosed(row.status));
+    }
+    return items;
+  }, [data, filters.attention]);
+
+  const groups = useMemo(() => groupSourcing(rows, groupBy), [rows, groupBy]);
   const groupTotal = groups.length;
   const groupPageCount = Math.max(1, Math.ceil(groupTotal / pageSize));
   const pageGroups = useMemo(
@@ -79,9 +179,54 @@ export function SourcingWorkspace() {
     [groups, page, pageSize],
   );
 
-  const total = data?.total ?? 0;
-  const filtered =
-    filters.q !== "" || filters.untendered !== "" || stage !== null;
+  // An attention filter drops rows after the server counted them, so the
+  // server's total would overstate the list. `rows` is the whole matching set
+  // in that mode (the fetch covers it), so counting it is exact.
+  const total = filters.attention !== null ? rows.length : data?.total ?? 0;
+
+  // Card view normally lets the API paginate; when the client is filtering it
+  // has to slice the page itself.
+  const cardRows = useMemo(
+    () =>
+      clientPaginated && !isGrouped
+        ? rows.slice((page - 1) * pageSize, page * pageSize)
+        : rows,
+    [clientPaginated, isGrouped, rows, page, pageSize],
+  );
+  const cardPageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  const filtered = hasActiveFilters(filters);
+
+  /* --- Attention cards -----------------------------------------------------
+     Unfiltered on purpose: "is anything waiting on me" must not change
+     because the reader narrowed the table. Both windows are wider than the
+     four rows a card shows, since the interesting rows are a subset. */
+
+  // One window serves both the inbox card and the filter pickers below: same
+  // sort, and the card wants a subset of what the pickers already need.
+  const { data: recentPage, isPending: recentPending } = useSourcingRequests(
+    { page: 1, size: GROUPING_FETCH_SIZE, sort: "updated_at", order: "desc" },
+    { refetchInterval: POLL_MS },
+  );
+  const { data: followUpsPage, isPending: followUpsPending } =
+    useSourcingRequests(
+      { page: 1, size: 25, sort: "follow_up_on", order: "asc" },
+      { refetchInterval: POLL_MS },
+    );
+
+  /* --- Facets -------------------------------------------------------------
+     The supplier and tender pickers list what actually has enquiries against
+     it, rather than every company and bid in the database — a filter offering
+     choices that return nothing is worse than no filter. Read off the same
+     unfiltered window as the inbox card, so with more than 100 live enquiries
+     the lists become a recent subset rather than the whole set. */
+
+  const { suppliers, tenders } = useMemo(
+    () => facetsOf(recentPage?.items ?? []),
+    [recentPage],
+  );
+
+  /* --- Handlers ----------------------------------------------------------- */
 
   function changeFilters(next: SourcingFilterValues) {
     setFilters(next);
@@ -89,8 +234,16 @@ export function SourcingWorkspace() {
   }
 
   function changeStage(next: StageKey | null) {
-    setStage(next);
-    setPage(1);
+    const stage = next
+      ? PIPELINE_STAGES.find((entry) => entry.key === next)
+      : undefined;
+    // Picking a stage card is picking a status, and it clears any attention
+    // chip — the two are competing answers to "which rows am I looking at".
+    changeFilters({
+      ...filters,
+      status: stage ? stage.statuses[0] : "",
+      attention: null,
+    });
   }
 
   function changeSort(next: string) {
@@ -98,18 +251,53 @@ export function SourcingWorkspace() {
     setPage(1);
   }
 
-  // Table view paginates product groups and card view paginates raw requests
-  // — page 1 in one view has no correspondence to page 1 in the other, so a
-  // stale page number would show blank results after switching.
+  // List view paginates groups and card view paginates raw requests — page 1
+  // in one has no correspondence to page 1 in the other, so a stale page
+  // number would show blank results after switching.
   function changeView(next: "list" | "grid") {
     setView(next);
     setPage(1);
   }
 
+  function changeGroupBy(next: GroupBy) {
+    setGroupBy(next);
+    setPage(1);
+  }
+
   function resetAll() {
     setFilters(EMPTY_SOURCING_FILTERS);
-    setStage(null);
     setPage(1);
+  }
+
+  function sync() {
+    syncMailbox.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.error) {
+          // A partial sync still commits what it imported, so this rides on a
+          // 200 — report both halves rather than only the failure.
+          toast.error(
+            `Imported ${result.synced} message${result.synced === 1 ? "" : "s"}, then hit a problem: ${result.error}`,
+            { duration: 8000 },
+          );
+          return;
+        }
+        toast.success(
+          result.synced === 0
+            ? "No new supplier replies"
+            : `${result.synced} new message${result.synced === 1 ? "" : "s"} imported`,
+        );
+      },
+      onError: (syncError) => {
+        toast.error(
+          isMailboxReauthError(syncError)
+            ? "The mailbox needs reconnecting — open Settings › Mailbox"
+            : syncError instanceof Error
+              ? syncError.message
+              : "Could not check for replies",
+          { duration: 8000 },
+        );
+      },
+    });
   }
 
   function exportCsv() {
@@ -121,33 +309,74 @@ export function SourcingWorkspace() {
     }
   }
 
+  /** The stage card that should read as active — derived from the status
+   *  filter, so the strip and the dropdown can never disagree. */
+  const activeStage: StageKey | null =
+    filters.attention === null && filters.status
+      ? PIPELINE_STAGES.find((stage) =>
+          stage.statuses.includes(filters.status as SourcingStatus),
+        )?.key ?? null
+      : null;
+
   return (
     <div className="space-y-5 sm:space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Sourcing
-          </h1>
-          <p className="text-sm font-medium text-muted-foreground">
-            Manage supplier enquiries, track communications, and compare quotations.
-          </p>
-        </div>
-        {/* Creating an enquiry from scratch is not built — the flow that will
-            feed this is "Start Enquiry" from a product's supplier list. Shown
-            disabled so the header matches the design without misleading. */}
-        <Button disabled title="Creating an enquiry is not available yet">
-          <Plus strokeWidth={2.25} />
-          New Sourcing Enquiry
-        </Button>
+      <SourcingHeader
+        onExport={exportCsv}
+        exporting={exporting}
+        exportDisabled={rows.length === 0}
+      />
+
+      <SourcingPipelineStrip
+        pipeline={pipeline}
+        isPending={pipelinePending}
+        activeStage={activeStage}
+        onStageSelect={changeStage}
+      />
+
+      {/* The three "what is waiting on me" cards, side by side under the
+          counters. They are deliberately not driven by the filters below: the
+          answer to "is anything waiting on me" must not change because the
+          reader narrowed the table to one supplier. */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        <QuickActionsCard
+          onSync={sync}
+          syncing={syncMailbox.isPending}
+          // No account row at all *is* "disconnected" — but only once the
+          // settings have loaded, or a cold render would flash "Connect a
+          // mailbox" at someone whose mailbox is fine.
+          status={
+            mailbox ? mailbox.account?.status ?? "disconnected" : undefined
+          }
+        />
+        <RecentInboxCard
+          requests={recentPage?.items ?? []}
+          isPending={recentPending}
+          onSelect={setSelected}
+          onViewAll={() =>
+            changeFilters({ ...EMPTY_SOURCING_FILTERS, attention: "awaiting_reply" })
+          }
+        />
+        <FollowUpsCard
+          requests={followUpsPage?.items ?? []}
+          isPending={followUpsPending}
+          onSelect={setSelected}
+          onViewAll={() => changeSort("follow_up_on:asc")}
+        />
       </div>
 
-      <SourcingPipelineStrip activeStage={stage} onStageSelect={changeStage} />
-
-      <SourcingFilters value={filters} onChange={changeFilters} />
+      <SourcingFilters
+        value={filters}
+        onChange={changeFilters}
+        suppliers={suppliers}
+        tenders={tenders}
+        attention={pipeline?.attention}
+        sort={sort}
+        onSortChange={changeSort}
+      />
 
       <div className="w-full min-w-0 rounded-2xl border border-border/60 bg-card shadow-sm">
         <SourcingTable
-          rows={rows}
+          rows={cardRows}
           groups={pageGroups}
           total={total}
           isFetching={isFetching}
@@ -158,20 +387,32 @@ export function SourcingWorkspace() {
           onResetFilters={resetAll}
           view={view}
           onViewChange={changeView}
-          sort={sort}
-          onSortChange={changeSort}
-          onExport={exportCsv}
-          exporting={exporting}
+          groupBy={groupBy}
+          onGroupByChange={changeGroupBy}
         />
 
         {(isGrouped ? groupTotal : total) > 0 && (
           <div className="border-t border-border/60 px-4 py-4 sm:px-5">
             <ResultsPagination
-              page={isGrouped ? page : data?.page ?? page}
-              pageCount={isGrouped ? groupPageCount : data?.pages ?? 1}
+              page={clientPaginated ? page : data?.page ?? page}
+              pageCount={
+                isGrouped
+                  ? groupPageCount
+                  : clientPaginated
+                    ? cardPageCount
+                    : data?.pages ?? 1
+              }
               total={isGrouped ? groupTotal : total}
               pageSize={pageSize}
-              itemLabel={isGrouped ? "products" : "results"}
+              itemLabel={
+                isGrouped
+                  ? groupBy === "supplier"
+                    ? "suppliers"
+                    : groupBy === "product"
+                      ? "products"
+                      : "enquiries"
+                  : "results"
+              }
               onPageChange={(next) => {
                 setPage(next);
                 window.scrollTo({ top: 0, behavior: "smooth" });
@@ -185,15 +426,45 @@ export function SourcingWorkspace() {
         )}
       </div>
 
-      {selected && (
+      {openRequest && (
         <SourcingDetailPanel
-          key={selected.id}
-          request={selected}
-          onClose={() => setSelected(null)}
+          key={openRequest.id}
+          request={openRequest}
+          onClose={closePanel}
         />
       )}
     </div>
   );
+}
+
+/* --- Facets ---------------------------------------------------------------- */
+
+function facetsOf(rows: SourcingRequestListItem[]): {
+  suppliers: FacetOption[];
+  tenders: FacetOption[];
+} {
+  const suppliers = new Map<number, string>();
+  const tenders = new Map<number, string>();
+
+  for (const row of rows) {
+    suppliers.set(row.company.id, row.company.name_en);
+    if (row.tender) {
+      tenders.set(
+        row.tender.id,
+        row.tender.reference_no ?? row.tender.name,
+      );
+    }
+  }
+
+  const byLabel = (a: FacetOption, b: FacetOption) =>
+    a.label.localeCompare(b.label);
+
+  return {
+    suppliers: [...suppliers]
+      .map(([id, label]) => ({ id, label }))
+      .sort(byLabel),
+    tenders: [...tenders].map(([id, label]) => ({ id, label })).sort(byLabel),
+  };
 }
 
 /* --- Export ---------------------------------------------------------------- */
@@ -206,6 +477,8 @@ const COLUMNS = [
   "Related To",
   "Status",
   "Requested Quantity",
+  "Last Activity",
+  "Awaiting Us",
   "Follow-up",
   "Quotations",
   "Communications",
@@ -231,6 +504,8 @@ function rowsToCsv(rows: SourcingRequestListItem[]): string {
             ? `${row.required_quantity} ${row.quantity_unit ?? ""}`.trim()
             : "",
         ),
+        csvField(relativeTime(row.last_activity_at)),
+        csvField(row.awaiting_us ? "yes" : "no"),
         csvField(row.follow_up_on ? formatDate(row.follow_up_on) : ""),
         csvField(row.quotation_count),
         csvField(row.communication_count),

@@ -3,9 +3,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, BellOff, Loader2, LogOut, Menu, Search, Settings, X } from "lucide-react";
+import { Bell, Loader2, LogOut, Menu, Search, Settings, X } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { NotificationList } from "@/components/notifications/notification-list";
 import { useAuth } from "@/lib/auth";
+import { useUnreadCount } from "@/lib/queries";
+import { unlockSound } from "@/lib/notification-sound";
+import { useNotificationStream } from "@/lib/use-notification-stream";
 import { Sidebar } from "./sidebar";
 
 /**
@@ -20,6 +24,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+
+  // One stream per tab, opened here because the shell is the only component
+  // that is mounted for the whole authenticated session. Gated on `user` so it
+  // never opens before the token exists — the first connection would 401 and
+  // burn a refresh for nothing.
+  useNotificationStream(Boolean(user));
+  const { data: unreadData } = useUnreadCount();
+  const unread = unreadData?.unread ?? 0;
+
+  // Browsers refuse to let a page play audio until someone has interacted with
+  // it, and `resume()` is only granted from inside a real gesture — not from
+  // the network callback that receives a notification. So the audio context is
+  // created on the first click anywhere in the app and kept for the session.
+  useEffect(() => {
+    const onFirstGesture = () => unlockSound();
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    window.addEventListener("keydown", onFirstGesture, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", onFirstGesture);
+      window.removeEventListener("keydown", onFirstGesture);
+    };
+  }, []);
 
   // Closing on Escape covers both overlays; only one is ever open at a time
   // in practice, so there is no ordering to worry about.
@@ -104,16 +130,21 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setNotifOpen(true)}
-              aria-label="Notifications"
+              aria-label={
+                unread > 0 ? `Notifications (${unread} unread)` : "Notifications"
+              }
               aria-expanded={notifOpen}
               className="relative rounded-lg p-2 text-muted-foreground transition-all hover:bg-accent hover:text-foreground hover:scale-105"
             >
               <Bell className="size-5" strokeWidth={2} />
-              {/* Enhanced notification badge */}
-              <span className="absolute right-1.5 top-1.5 flex size-2 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75"></span>
-                <span className="relative inline-flex size-2 rounded-full bg-primary ring-2 ring-background"></span>
-              </span>
+              {/* The count, not a decoration. The old badge pinged whether or
+                  not anything had happened, which taught everyone to ignore
+                  it — a permanently-lit indicator carries no information. */}
+              {unread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.125rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-[1.125rem] text-primary-foreground ring-2 ring-background">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </button>
 
             <button
@@ -165,17 +196,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
 
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-secondary text-muted-foreground ring-1 ring-inset ring-border/60">
-              <BellOff className="size-5" strokeWidth={2} />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-bold text-foreground">You&rsquo;re all caught up</p>
-              <p className="max-w-60 text-xs font-medium text-muted-foreground">
-                Nothing new right now — we&rsquo;ll let you know when something needs your attention.
-              </p>
-            </div>
-          </div>
+          <NotificationList onNavigate={() => setNotifOpen(false)} />
         </aside>
       </div>
 

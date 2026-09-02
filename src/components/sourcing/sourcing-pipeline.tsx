@@ -1,69 +1,67 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useSourcingPipeline } from "@/lib/queries";
 import { PIPELINE_STAGES, type StageKey } from "./sourcing-taxonomy";
 import type { SourcingPipeline as Pipeline } from "@/types/api";
 
 /**
- * The pipeline strip: six stages a request moves through, left to right.
+ * Five pipeline counters across the top of the screen.
  *
- * The arrows between the cards are the point — this is a flow, not six
- * unrelated counters, and a buyer should be able to see where work is piling
- * up. Every stage renders even at zero; one that vanished when it emptied would
- * make the pipeline look like it has fewer steps than it does.
+ * They are filters, not decoration: the whole card is the button, because a
+ * "View all" link inside a card the user has already aimed at is one more
+ * thing to hit. Every stage renders at zero — one that vanished when it
+ * emptied would make the pipeline look like it has fewer steps than it does.
+ *
+ * Kept deliberately short. There is one number per card, and a taller card
+ * only buys whitespace above the fold that the table underneath needs more.
+ *
+ * The badge on Replied and Quotations is the part that earns the space. A
+ * count of requests sitting in a status is history; a count of requests
+ * waiting on *you* is work, and the two are not the same number.
  */
 export function SourcingPipelineStrip({
+  pipeline,
+  isPending,
   activeStage,
   onStageSelect,
 }: {
+  pipeline: Pipeline | undefined;
+  isPending: boolean;
   activeStage: StageKey | null;
   onStageSelect: (stage: StageKey | null) => void;
 }) {
-  const { data, isPending, error } = useSourcingPipeline();
-
-  // The strip is context, not the page's payload — if the aggregate fails the
-  // table below is still perfectly usable.
-  if (error) return null;
-
   if (isPending) {
     return (
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         {PIPELINE_STAGES.map((stage) => (
           <div
             key={stage.key}
-            className="h-[136px] animate-pulse rounded-2xl border border-border/60 bg-card shadow-sm"
+            className="h-[106px] animate-pulse rounded-2xl border border-border/60 bg-card shadow-sm"
           />
         ))}
       </div>
     );
   }
 
+  // The strip is context, not the page's payload — if the aggregate failed,
+  // the table below is still perfectly usable, so render nothing rather than
+  // an error the user cannot act on.
+  if (!pipeline) return null;
+
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6 xl:gap-0">
-      {PIPELINE_STAGES.map((stage, index) => (
-        <div key={stage.key} className="relative flex items-stretch xl:pr-6">
-          <StageCard
-            stage={stage}
-            count={countFor(data, stage.statuses)}
-            active={activeStage === stage.key}
-            onSelect={() =>
-              onStageSelect(activeStage === stage.key ? null : stage.key)
-            }
-          />
-          {/* Connectors live between cards, so the last one has none. Hidden
-              below xl, where the cards wrap and an arrow would point at the
-              wrong neighbour. */}
-          {index < PIPELINE_STAGES.length - 1 && (
-            <span
-              aria-hidden
-              className="absolute right-0 top-1/2 hidden w-6 -translate-y-1/2 items-center justify-center text-muted-foreground/50 xl:flex"
-            >
-              <ArrowRight className="size-4" strokeWidth={2.25} />
-            </span>
-          )}
-        </div>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      {PIPELINE_STAGES.map((stage) => (
+        <StageCard
+          key={stage.key}
+          stage={stage}
+          count={countFor(pipeline, stage.statuses)}
+          badgeCount={awaitingFor(pipeline, stage.statuses)}
+          active={activeStage === stage.key}
+          onSelect={() =>
+            onStageSelect(activeStage === stage.key ? null : stage.key)
+          }
+        />
       ))}
     </div>
   );
@@ -72,83 +70,96 @@ export function SourcingPipelineStrip({
 function StageCard({
   stage,
   count,
+  badgeCount,
   active,
   onSelect,
 }: {
   stage: (typeof PIPELINE_STAGES)[number];
   count: number;
+  badgeCount: number;
   active: boolean;
   onSelect: () => void;
 }) {
   const Icon = stage.icon;
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
       className={cn(
-        "flex h-full w-full flex-col gap-3 rounded-2xl border bg-card p-4 shadow-sm transition-all duration-300",
+        "group flex h-full w-full flex-col gap-3 rounded-2xl border bg-card p-4 text-left shadow-sm transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         active
           ? "border-primary/50 ring-1 ring-primary/20"
-          : "border-border/60 hover:-translate-y-0.5 hover:shadow-md",
+          : "border-border/60 hover:-translate-y-0.5 hover:border-border hover:shadow-md",
       )}
     >
-      {/* Fixed to a set number of lines so every card's icon/number row
-          starts at the same y — "Draft" and "Sent / Awaiting Response" must
-          not push the rest of the card to different heights. Three lines
-          below `sm`, where the two-column grid leaves each card too narrow
-          for the longest label to fit in two. */}
-      <p
-        title={stage.label}
-        className="line-clamp-3 min-h-[3.25rem] text-xs font-semibold leading-snug text-foreground sm:line-clamp-2 sm:min-h-[2.125rem]"
-      >
-        {stage.label}
-      </p>
-
-      {/* The icon sits centered on the left against the number + caption —
-          not pinned to the card's top edge — and this pairing centers as a
-          unit in the space the (fixed-height) title leaves above the button. */}
-      <div className="flex flex-1 items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <span
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
+            "flex size-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
             stage.tile,
           )}
         >
-          <Icon className="size-[18px]" strokeWidth={2} />
+          <Icon className="size-4" strokeWidth={2.25} />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-2xl font-bold leading-none tracking-tight tabular-nums text-foreground">
-            {count.toLocaleString()}
-          </p>
-          <p className="mt-1 truncate text-[11px] font-medium text-muted-foreground">
-            {stage.countLabel}
-          </p>
-        </div>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-foreground">
+          {stage.label}
+        </span>
+        {/* The affordance the old card spent a whole bordered footer row on.
+            An arrow that shifts on hover, becoming a dismiss once the filter
+            is on, says the same thing in space the row already had. */}
+        {active ? (
+          <X className="size-3.5 shrink-0 text-primary" strokeWidth={2.5} />
+        ) : (
+          <ArrowRight
+            className="size-3.5 shrink-0 text-muted-foreground/50 transition-all group-hover:translate-x-0.5 group-hover:text-primary"
+            strokeWidth={2.5}
+          />
+        )}
       </div>
 
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={active}
-        className={cn(
-          "group mt-auto flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-          active
-            ? "bg-primary text-primary-foreground"
-            : stage.action,
+      {/* Count and caption share a line rather than stacking. With one number
+          per card there was nothing to fill the height the stack cost. */}
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold leading-none tracking-tight tabular-nums text-foreground">
+          {count.toLocaleString()}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
+          {stage.countLabel}
+        </span>
+        {/* Only when there is something outstanding. A permanent "0" badge
+            would train the eye to ignore the one place it needs to look. The
+            number is this stage's own column, so it is never larger than the
+            count beside it. */}
+        {stage.badge && badgeCount > 0 && (
+          <span
+            title={`${badgeCount} waiting on you`}
+            className={cn(
+              "flex size-[18px] shrink-0 items-center justify-center self-center rounded-full text-[10px] font-bold tabular-nums",
+              stage.badge,
+            )}
+          >
+            {badgeCount}
+          </span>
         )}
-      >
-        {active ? "Clear filter" : "View all"}
-        <ArrowRight
-          className="size-3 transition-transform group-hover:translate-x-0.5"
-          strokeWidth={2.5}
-        />
-      </button>
-    </div>
+      </div>
+    </button>
   );
 }
 
-/** A stage can cover several statuses — "Closed" is four of them. */
+/** A stage could cover several statuses; today each covers exactly one, but
+ *  the shape stays so reintroducing a grouped column is a data change. */
 function countFor(pipeline: Pipeline, statuses: string[]): number {
   return pipeline.columns
     .filter((column) => statuses.includes(column.status))
     .reduce((total, column) => total + column.count, 0);
+}
+
+/** The same stage's "waiting on you" number. Summed over exactly the columns
+ *  `countFor` sums, so the badge is a subset of the count by construction. */
+function awaitingFor(pipeline: Pipeline, statuses: string[]): number {
+  return pipeline.columns
+    .filter((column) => statuses.includes(column.status))
+    .reduce((total, column) => total + column.awaiting_us, 0);
 }

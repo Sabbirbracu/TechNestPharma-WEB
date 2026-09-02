@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Loader2 } from "lucide-react";
@@ -21,6 +21,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
+
+  // Owner-only entries are dropped rather than shown disabled. The Inbox reads
+  // the client's own Gmail, and a greyed-out link would advertise that his
+  // personal mail is in here — which is exactly what staff should not be
+  // thinking about. The API refuses them regardless; this is the courtesy half.
+  const sections = useMemo(
+    () =>
+      NAV_SECTIONS.map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => !item.ownerOnly || user?.role === "owner",
+        ),
+      })).filter((section) => section.items.length > 0),
+    [user?.role],
+  );
 
   async function handleLogout() {
     setSigningOut(true);
@@ -47,7 +62,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Link>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
-        {NAV_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.label} className="space-y-1.5">
             <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
               {section.label}

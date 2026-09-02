@@ -35,8 +35,16 @@ import type {
   ContactUpdateInput,
   CountryRef,
   DashboardStats,
+  DashboardTimeseries,
+  DirectSendInput,
   ExtractionResult,
+  InboxBucket,
+  InboxPage,
+  InboxThread,
   MatchCandidate,
+  SenderRule,
+  SenderRuleInput,
+  ThreadFiled,
   NoticeConfirmResult,
   NoticeSource,
   NoticeTender,
@@ -47,6 +55,9 @@ import type {
   TenderNoticeListItem,
   TenderNoticeParams,
   TenderConfirmResult,
+  AppNotification,
+  UnreadCount,
+  MarkAllReadResult,
   InquiryDraft,
   InquiryPreviewInput,
   MailboxSettings,
@@ -111,6 +122,8 @@ import type {
  */
 export const keys = {
   dashboard: ["dashboard"] as const,
+  dashboardTimeseries: (windowDays: number) =>
+    ["dashboard", "timeseries", windowDays] as const,
   account: {
     sessions: ["account", "sessions"] as const,
   },
@@ -119,6 +132,12 @@ export const keys = {
     activityLog: (params: AuditLogParams) => ["admin", "activity-log", params] as const,
   },
   countries: ["countries"] as const,
+  notifications: {
+    all: ["notifications"] as const,
+    list: (page: number, unreadOnly: boolean) =>
+      ["notifications", "list", page, unreadOnly] as const,
+    unread: ["notifications", "unread"] as const,
+  },
   activity: (limit: number) => ["activity", limit] as const,
   therapeuticCategories: ["therapeutic-categories"] as const,
   search: (q: string) => ["search", q] as const,
@@ -176,9 +195,13 @@ export const keys = {
     all: ["mailbox"] as const,
     settings: ["mailbox", "settings"] as const,
     thread: (requestId: number) => ["mailbox", "thread", requestId] as const,
-    draft: (requestId: number) => ["mailbox", "draft", requestId] as const,
     preview: (input: InquiryPreviewInput) =>
       ["mailbox", "preview", input] as const,
+    inbox: (bucket: string, pageToken: string | null) =>
+      ["mailbox", "inbox", bucket, pageToken] as const,
+    inboxThread: (threadId: string) =>
+      ["mailbox", "inbox-thread", threadId] as const,
+    senderRules: ["mailbox", "sender-rules"] as const,
   },
   sourcing: {
     all: ["sourcing"] as const,
@@ -213,6 +236,23 @@ export function useDashboard() {
   return useQuery({
     queryKey: keys.dashboard,
     queryFn: () => apiFetch<DashboardStats>("/dashboard"),
+  });
+}
+
+/** The growth chart and the tile sparklines. Its own query, not a field on
+ *  `useDashboard`, so moving the range selector refetches only the lines — the
+ *  counts and breakdowns beside them stay on their cached key. */
+export function useDashboardTimeseries(windowDays: number) {
+  return useQuery({
+    queryKey: keys.dashboardTimeseries(windowDays),
+    queryFn: () =>
+      apiFetch<DashboardTimeseries>(
+        `/dashboard/timeseries?window_days=${windowDays}`,
+      ),
+    // Keep the old lines on screen while a new range loads, so switching
+    // 30d → 90d redraws rather than blanking the card.
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -357,7 +397,19 @@ export function useProductStats() {
 
 /* --- Sourcing (FR-SRC) -------------------------------------------------- */
 
-export function useSourcingRequests(params: SourcingRequestParams) {
+/**
+ * How often a sourcing query re-checks the server, in ms.
+ *
+ * `refetchIntervalInBackground` is left off deliberately, so a tab left open
+ * on this screen overnight stops asking once it is hidden. This only refreshes
+ * what the *server* already holds — reaching out to Gmail is `useSyncMailbox`.
+ */
+export type PollOptions = { refetchInterval?: number };
+
+export function useSourcingRequests(
+  params: SourcingRequestParams,
+  options: PollOptions = {},
+) {
   return useQuery({
     queryKey: keys.sourcing.list(params),
     queryFn: () =>
@@ -365,6 +417,7 @@ export function useSourcingRequests(params: SourcingRequestParams) {
         `/sourcing/requests${toQueryString(params)}`,
       ),
     placeholderData: keepPreviousData,
+    refetchInterval: options.refetchInterval,
   });
 }
 
@@ -380,10 +433,11 @@ export function useSourcingRequest(id: number | null) {
 
 /** Counts per pipeline column. Kept out of the list key: the board describes
  *  the whole pipeline and must not shrink when a filter narrows the table. */
-export function useSourcingPipeline() {
+export function useSourcingPipeline(options: PollOptions = {}) {
   return useQuery({
     queryKey: keys.sourcing.pipeline,
     queryFn: () => apiFetch<SourcingPipeline>("/sourcing/pipeline"),
+    refetchInterval: options.refetchInterval,
   });
 }
 
@@ -1274,17 +1328,6 @@ export function useRequestThread(requestId: number | null) {
 /** The pre-filled inquiry. `enabled` is the caller's switch so the draft is
  *  only built when the compose dialog actually opens — it is a server-side
  *  render over the request, not something to prefetch for every row. */
-export function useInquiryDraft(requestId: number | null, enabled: boolean) {
-  return useQuery({
-    queryKey: keys.mailbox.draft(requestId ?? 0),
-    queryFn: () => apiFetch<InquiryDraft>(`/mailbox/requests/${requestId}/draft`),
-    enabled: enabled && requestId !== null && Number.isFinite(requestId),
-    // Always refetch on open: the draft reflects the request's current
-    // quantity and spec, and a stale body would send yesterday's numbers.
-    staleTime: 0,
-  });
-}
-
 /** The email an enquiry *would* send, rendered before the request is filed.
  *
  *  One per supplier, because each has its own greeting and address. Keyed on
@@ -1314,28 +1357,16 @@ export function useInquiryPreviews(
   });
 }
 
-/** Send the inquiry. Invalidates sourcing too, because sending moves a draft
- *  request to `sent` server-side and the board has to follow. */
-export function useSendInquiry(requestId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: MailSendInput) =>
-      apiFetch<MailMessage>(`/mailbox/requests/${requestId}/send`, {
-        method: "POST",
-        json: payload,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
-      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
-    },
-  });
-}
-
-/** Send an inquiry for a request whose id is only known at call time.
+/**
+ * Send an inquiry, for a request whose id is only known at call time.
  *
- *  `useSendInquiry` binds one request per hook, which cannot cover the tender
- *  dialog: it files N sourcing requests and then mails each one, and the ids
- *  do not exist until the mutation that creates them has resolved. */
+ * Not bound to one request per hook, because the enquiry dialog cannot be:
+ * from a tender it files N sourcing requests and then mails each one, and the
+ * ids do not exist until the mutation that created them has resolved.
+ *
+ * Invalidates sourcing as well as mail — sending moves a draft request to
+ * `sent` server-side, and the board has to follow.
+ */
 export function useSendInquiryById() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1498,6 +1529,48 @@ export function useUploadNotice() {
  *  Re-running REPLACES the previous run's tenders, confirmed mappings
  *  included — a re-extraction means the first reading was wrong, and merging
  *  two readings of one page leaves a hybrid nobody can check against the PDF. */
+/** Correct the notice's own fields — the title above all, since it defaults to
+ *  the uploaded filename. */
+export function useUpdateNotice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      noticeId,
+      ...payload
+    }: {
+      noticeId: number;
+      title?: string;
+      source_name?: string | null;
+      source_url?: string | null;
+      notice_date?: string | null;
+      notes?: string | null;
+    }) =>
+      apiFetch<TenderNoticeDetail>(`/tender-notices/${noticeId}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
+/** The same extraction as `useExtractNotice`, with the notice id supplied at
+ *  call time rather than when the hook is built — the upload flow only learns
+ *  the id from the response it is chaining off. */
+export function useExtractNoticeById() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (noticeId: number) =>
+      apiFetch<ExtractionResult>(`/tender-notices/${noticeId}/extract`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+    },
+  });
+}
+
 export function useExtractNotice(noticeId: number) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1741,4 +1814,242 @@ export function useConfirmTender() {
       queryClient.invalidateQueries({ queryKey: keys.tenders.all });
     },
   });
+}
+
+/* -------------------------------------------------------------------------
+ * Notifications
+ * ---------------------------------------------------------------------- */
+
+/**
+ * The bell's list. Kept on a short `staleTime` rather than a poll: the live
+ * stream invalidates this key the moment anything lands, so polling it would
+ * be a second, slower copy of a job already done.
+ */
+export function useNotifications(page: number, unreadOnly = false) {
+  return useQuery({
+    queryKey: keys.notifications.list(page, unreadOnly),
+    queryFn: () =>
+      apiFetch<Page<AppNotification>>(
+        `/notifications?page=${page}&size=20${unreadOnly ? "&unread_only=true" : ""}`,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The badge. Its own endpoint so opening the tray is not a prerequisite for
+ *  knowing there is something in it. */
+export function useUnreadCount() {
+  return useQuery({
+    queryKey: keys.notifications.unread,
+    queryFn: () => apiFetch<UnreadCount>("/notifications/unread-count"),
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<AppNotification>(`/notifications/${id}/read`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.notifications.all });
+    },
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<MarkAllReadResult>("/notifications/read-all", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.notifications.all });
+    },
+  });
+}
+
+// --- Inbox (2026-08-31) ------------------------------------------------------
+//
+// The mailbox module gained a real inbox: the client can now read mail that
+// arrived without the ERP starting the conversation, and send an email that
+// belongs to no tender and no sourcing request. Both were the gap he named —
+// until now every send began at a product or a tender, and a supplier who
+// wrote first was invisible.
+//
+// Two properties shape every hook below:
+//
+//   * **Nothing is cached server-side and nothing is stored.** A page is
+//     fetched from Gmail, classified, rendered, and forgotten. So these
+//     queries have a short `staleTime` and no optimistic writes — there is no
+//     local copy of the truth to update.
+//   * **The filter is logic the user owns.** `useSetSenderRule` is the
+//     learning loop that stands in for an AI classifier, and every mutation of
+//     it invalidates the whole inbox, because one rule can re-sort every
+//     message on screen.
+
+/** One page of the inbox, already sorted into a bucket by the server.
+ *
+ *  `pageToken` is Gmail's own cursor, passed straight back. A page can come
+ *  back with fewer rows than asked for while still carrying a token: the
+ *  server walks a scan budget looking for messages of the requested bucket and
+ *  stops when it runs out, which is a "load more", not an end. */
+export function useInbox(
+  bucket: InboxBucket,
+  pageToken?: string | null,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: keys.mailbox.inbox(bucket, pageToken ?? null),
+    queryFn: () =>
+      apiFetch<InboxPage>(
+        `/mailbox/inbox${toQueryString({
+          bucket,
+          page_token: pageToken ?? undefined,
+        })}`,
+      ),
+    // Short but non-zero: switching tabs back and forth should not re-spend
+    // Gmail calls, and the mailbox does not change in the seconds it takes to
+    // look at two tabs.
+    staleTime: 30_000,
+    enabled: options?.enabled ?? true,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** One conversation, read live from Gmail. Opening it stores nothing. */
+export function useInboxThread(threadId: string | null) {
+  return useQuery({
+    queryKey: keys.mailbox.inboxThread(threadId ?? ""),
+    queryFn: () =>
+      apiFetch<InboxThread>(`/mailbox/inbox/threads/${threadId}`),
+    enabled: Boolean(threadId),
+    staleTime: 30_000,
+  });
+}
+
+/** Send an email that belongs to no tender and no sourcing request.
+ *
+ *  Invalidates sourcing as well as the mailbox: if the recipient turned out to
+ *  be an address already on file, the message has just landed on that
+ *  supplier's timeline. */
+export function useSendDirectMail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: DirectSendInput) =>
+      apiFetch<MailMessage>("/mailbox/inbox/send", {
+        method: "POST",
+        json: input,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Keep a conversation the ERP did not start.
+ *
+ *  The deliberate act that turns "read and forgotten" into a record. After
+ *  this the ordinary sync picks up later replies, because the thread id is now
+ *  one the system knows. */
+export function useFileInboxThread() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      threadId,
+      companyId,
+    }: {
+      threadId: string;
+      companyId?: number | null;
+    }) =>
+      apiFetch<ThreadFiled>(`/mailbox/inbox/threads/${threadId}/file`, {
+        method: "POST",
+        json: { company_id: companyId ?? null },
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      toast.success(
+        result.messages_recorded > 0
+          ? `Filed ${result.messages_recorded} message${result.messages_recorded === 1 ? "" : "s"}.`
+          : "This conversation was already on file.",
+      );
+    },
+  });
+}
+
+/** Every triage decision made so far — the filter's whole memory. */
+export function useSenderRules() {
+  return useQuery({
+    queryKey: keys.mailbox.senderRules,
+    queryFn: () => apiFetch<SenderRule[]>("/mailbox/sender-rules"),
+  });
+}
+
+/** Mark a sender as business, or as not.
+ *
+ *  PUT because it upserts on the pattern: pressing the opposite button flips
+ *  the verdict rather than filing a second row that contradicts the first.
+ *  Invalidates the whole mailbox, because one rule re-sorts every message from
+ *  that sender currently on screen. */
+export function useSetSenderRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SenderRuleInput) =>
+      apiFetch<SenderRule>("/mailbox/sender-rules", {
+        method: "PUT",
+        json: input,
+      }),
+    onSuccess: (rule) => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      toast.success(
+        rule.is_business
+          ? `${rule.pattern} will show under Business.`
+          : `${rule.pattern} will be filtered out.`,
+      );
+    },
+    onError: (error) => {
+      // The freemail guard lands here: allowing a whole-domain rule on
+      // gmail.com or qq.com would allowlist every user of that provider, so
+      // the server refuses and explains. Worth showing verbatim.
+      toast.error(
+        error instanceof ApiError ? error.message : "Could not save that rule.",
+      );
+    },
+  });
+}
+
+/** Forget one decision. That sender returns to Unsorted. */
+export function useDeleteSenderRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleId: number) =>
+      apiFetch(`/mailbox/sender-rules/${ruleId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+    },
+  });
+}
+
+/** Download a file off a message that was never stored.
+ *
+ *  Addressed by Gmail's message id and the MIME part id rather than by a row
+ *  id, because there is no row — same reason as `downloadMailAttachment`, it
+ *  goes through fetch so the Authorization header is sent. */
+export async function downloadInboxAttachment(
+  messageId: string,
+  partId: string,
+  filename: string,
+) {
+  const file = await apiFetch<Blob>(
+    `/mailbox/inbox/messages/${messageId}/attachments/${partId}/download`,
+    { blob: true },
+  );
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

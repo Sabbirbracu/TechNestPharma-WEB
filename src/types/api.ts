@@ -15,6 +15,7 @@ import type {
   MarketSegment,
   MaterialType,
   PackagingType,
+  SampleStatus,
   SterilizationMethod,
   UserRole,
 } from "./domain";
@@ -67,7 +68,6 @@ export type CompanyStats = {
 export type CompanyContact = {
   id: number;
   name_en: string;
-  name_cn: string | null;
   designation: string | null;
   department: string | null;
   is_primary: boolean;
@@ -92,7 +92,6 @@ export type ContactCompanyRef = {
 export type ContactListItem = {
   id: number;
   name_en: string;
-  name_cn: string | null;
   designation: string | null;
   department: string | null;
   is_primary: boolean;
@@ -337,6 +336,63 @@ export type DashboardStats = {
   };
   offers_by_material_type: LabelledCount[];
   companies_by_country: LabelledCount[];
+  /** Raw per-`doc_type` counts, not pre-grouped — the dashboard's Documents
+   *  card buckets them into its five tiles, the documents page can group its
+   *  own way. Types with no documents are absent rather than zero. */
+  documents_by_type: LabelledCount[];
+  recent_samples: RecentSample[];
+};
+
+/** A row of the dashboard's sample feed. Product and supplier are resolved
+ *  through `supplier_product` server-side — a sample points at an offer, not
+ *  at a product. */
+export type RecentSample = {
+  id: number;
+  product_name: string;
+  company_name: string;
+  status: SampleStatus;
+  /** ISO date. */
+  requested_on: string;
+};
+
+/** The six lines the dashboard can draw. The last three are the `ProductStats`
+ *  bucket keys — a tile's count comes from /products/stats and its sparkline
+ *  from /dashboard/timeseries, so they name the same partition. */
+export type DashboardSeriesKey =
+  | "manufacturers"
+  | "products"
+  | "contacts"
+  | "api"
+  | "excipient"
+  | "packaging_material";
+
+export type SeriesPoint = {
+  /** ISO date, one per day of the window with gaps filled in. */
+  date: string;
+  /** Running total at the end of that day, not the number added on it. */
+  value: number;
+};
+
+export type DashboardSeries = {
+  key: DashboardSeriesKey;
+  label: string;
+  points: SeriesPoint[];
+  /** Running total the day before the window opened — what `change_pct`
+   *  measures against. */
+  start_value: number;
+  end_value: number;
+  /** null when the series was empty before the window, which the UI renders as
+   *  "new" rather than an invented percentage. */
+  change_pct: number | null;
+};
+
+/** GET /dashboard/timeseries. Separate from /dashboard because it is the only
+ *  part that moves with the chart's range selector. */
+export type DashboardTimeseries = {
+  from_date: string;
+  to_date: string;
+  window_days: number;
+  series: DashboardSeries[];
 };
 
 /** How the backend interpreted the query (services/search.py ladder). */
@@ -375,7 +431,6 @@ export type ChannelInput = {
 export type ContactCreateInput = {
   company_id: number;
   name_en: string;
-  name_cn?: string | null;
   designation?: string | null;
   department?: string | null;
   is_primary?: boolean;
@@ -387,7 +442,6 @@ export type ContactCreateInput = {
  *  the edit form always submits the full set it displayed. */
 export type ContactUpdateInput = {
   name_en?: string;
-  name_cn?: string | null;
   designation?: string | null;
   department?: string | null;
   is_primary?: boolean;
@@ -398,7 +452,6 @@ export type ContactUpdateInput = {
 export type SearchContact = {
   id: number;
   name_en: string;
-  name_cn: string | null;
   designation: string | null;
   channels: SearchChannel[];
 };
@@ -977,8 +1030,19 @@ export type SourcingRequestListItem = {
   target_currency: string | null;
   target_price_unit: string | null;
   created_at: string;
+  updated_at: string;
   quotation_count: number;
   communication_count: number;
+  /** Newest message in each direction, derived per page from `communication`.
+   *  Both null on a request nobody has written on yet. */
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  /** max(updated_at, newest message) — what the Last Activity column reads.
+   *  Never null in practice; the request was at least created. */
+  last_activity_at: string | null;
+  /** The supplier had the last word, so we owe them an answer. Drives the
+   *  row's "New reply" marker and the Needs Attention counts. */
+  awaiting_us: boolean;
 };
 
 export type SourcingRequestDetail = SourcingRequestListItem & {
@@ -987,7 +1051,6 @@ export type SourcingRequestDetail = SourcingRequestListItem & {
   required_documents: string[] | null;
   supplier_product_id: number | null;
   notes: string | null;
-  updated_at: string;
   history: StatusHistoryEntry[];
   communications: Communication[];
   quotations: Quotation[];
@@ -1104,6 +1167,10 @@ export type NoticeTender = {
   schedule_currency: string | null;
   schedule_cost_usd: string | null;
   procurement_basis: string | null;
+  /** The procuring authority. Usually the same across every tender in a
+   *  notice, but it prefixes each reference in the UI — six references that
+   *  differ only in a serial number are otherwise hard to tell apart. */
+  buyer_name: string | null;
   items: NoticeTenderItem[];
   item_count: number;
   /** confirmed + skipped — every line a human has finished with. */
@@ -1274,6 +1341,10 @@ export type InquiryPreviewInput = {
   product_id: number;
   company_id: number;
   contact_person_id?: number | null;
+  /** Set when the enquiry is already filed and this is a follow-up: the
+   *  preview then comes back carrying that request's thread and a "Re:"
+   *  subject. Omitted from the tender board, where nothing is filed yet. */
+  sourcing_request_id?: number | null;
   required_quantity?: string | null;
   quantity_unit?: string | null;
   required_specification?: string | null;
@@ -1313,11 +1384,29 @@ export type SourcingPipelineColumn = {
   status: SourcingStatus;
   label: string;
   count: number;
+  /** How many of `count` are waiting on us. Always a subset, which is what
+   *  lets a stage card badge it without ever exceeding its own number. */
+  awaiting_us: number;
+};
+
+/**
+ * What is waiting on the buyer right now, across every live request.
+ *
+ * A breakdown rather than one number, because "6 need attention" is not
+ * actionable and "3 replies, 2 overdue follow-ups, 1 quotation" is. The three
+ * can overlap on one request, so `total` counts reasons, not requests.
+ */
+export type SourcingAttention = {
+  awaiting_reply: number;
+  overdue_follow_ups: number;
+  unreviewed_quotations: number;
+  total: number;
 };
 
 export type SourcingPipeline = {
   columns: SourcingPipelineColumn[];
   total: number;
+  attention: SourcingAttention;
 };
 
 export type SourcingRequestCreateInput = {
@@ -1464,4 +1553,144 @@ export type AuditLogParams = ListParams & {
   action?: ActivityAction;
   since?: string;
   until?: string;
+};
+
+/* -------------------------------------------------------------------------
+ * Notifications
+ * ---------------------------------------------------------------------- */
+
+export type NotificationKind =
+  | "supplier_replied"
+  /** Any new mail in the connected mailbox, including senders the ERP has
+   *  never seen. Kept apart from `supplier_replied` so the higher-signal
+   *  enquiry reply keeps its own icon — and so this one can be muted alone. */
+  | "inbox_mail"
+  | "follow_up_due"
+  | "status_changed";
+
+export type AppNotification = {
+  id: number;
+  kind: NotificationKind;
+  title: string;
+  body: string | null;
+  /** A loose (type, id) pair the client turns into a route. Both null when the
+   *  notification is not about anything clickable. */
+  entity_type: string | null;
+  entity_id: number | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type UnreadCount = { unread: number };
+
+export type MarkAllReadResult = { marked: number };
+
+// --- Inbox (2026-08-31) ------------------------------------------------------
+//
+// The mailbox module reads the client's own Gmail here, rather than only the
+// threads the ERP started. Two things follow, and both are visible in these
+// types:
+//
+//   * Nothing in an inbox row has an ERP id, because nothing has been stored.
+//     Messages are addressed by their Gmail ids and are recomputed on every
+//     read — the client's personal mail is rendered and forgotten, and only a
+//     reply or an explicit "file" turns a thread into communications.
+//   * Every row carries the bucket it was sorted into AND the reason. The
+//     reason is shown in the UI on purpose: the filter is plain logic, not a
+//     model, and the buyer's correction is the only thing that improves it.
+
+/** business = recognised sender, unsorted = a stranger (shown, never hidden),
+ *  filtered = bulk or promotional mail. */
+export type InboxBucket = "business" | "unsorted" | "filtered";
+
+export type InboxMessage = {
+  message_id: string;
+  thread_id: string;
+  from_address: string | null;
+  from_name: string | null;
+  subject: string | null;
+  /** Gmail's own preview text — cheaper than fetching the body. */
+  snippet: string | null;
+  received_at: string | null;
+  is_unread: boolean;
+  has_attachments: boolean;
+  bucket: InboxBucket;
+  /** "Known supplier domain (xyzpharma.cn)", "Gmail category: Promotions". */
+  bucket_reason: string;
+  company_id: number | null;
+  company_name: string | null;
+  /** Already recorded in the ERP — an inquiry we sent, or a filed thread. */
+  in_erp: boolean;
+};
+
+export type InboxPage = {
+  messages: InboxMessage[];
+  next_page_token: string | null;
+  /** Counts describe the window that was fetched, not the whole mailbox —
+   *  Gmail cannot count a query's matches without walking it. */
+  counts: Record<string, number>;
+  scanned: number;
+};
+
+export type InboxAttachment = {
+  part_id: string;
+  attachment_id: string | null;
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  is_inline: boolean;
+};
+
+export type InboxThreadMessage = {
+  message_id: string;
+  thread_id: string;
+  direction: CommunicationDirection;
+  from_address: string | null;
+  from_name: string | null;
+  to_addresses: string[];
+  subject: string | null;
+  body: string | null;
+  occurred_at: string | null;
+  attachments: InboxAttachment[];
+};
+
+export type InboxThread = {
+  thread_id: string;
+  messages: InboxThreadMessage[];
+  sourcing_request_id: number | null;
+  company_id: number | null;
+  company_name: string | null;
+};
+
+/** POST /mailbox/inbox/send — an email belonging to no tender and no request. */
+export type DirectSendInput = MailSendInput & {
+  company_id?: number | null;
+  contact_person_id?: number | null;
+};
+
+export type ThreadFiled = {
+  thread_id: string;
+  messages_recorded: number;
+  company_id: number | null;
+};
+
+/** One triage decision, and the filter's entire memory. This is what stands in
+ *  for a trained model: inspectable, reversible, and the client's own. */
+export type SenderRule = {
+  id: number;
+  pattern: string;
+  is_domain: boolean;
+  is_business: boolean;
+  company_id: number | null;
+  company_name: string | null;
+  note: string | null;
+  created_at: string | null;
+};
+
+export type SenderRuleInput = {
+  pattern: string;
+  is_domain: boolean;
+  is_business: boolean;
+  company_id?: number | null;
+  note?: string | null;
 };

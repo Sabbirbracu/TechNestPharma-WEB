@@ -4,12 +4,11 @@ import { useState } from "react";
 import {
   AlertCircle,
   Building2,
-  Calendar,
   ChevronDown,
   ChevronRight,
   Copy,
-  Download,
   Eye,
+  FileText,
   FlaskConical,
   Inbox,
   LayoutGrid,
@@ -34,81 +33,97 @@ import { cn } from "@/lib/utils";
 import {
   STATUS_STYLES,
   dueIn,
-  formatDate,
+  formatDateTime,
+  groupTile,
+  nextAction,
   referenceOf,
+  relativeTime,
+  statusDetail,
 } from "./sourcing-taxonomy";
-import type { SourcingRequestListItem, SourcingStatus } from "@/types/api";
+import type { SourcingRequestListItem } from "@/types/api";
 
 /**
- * One product and every supplier enquiry open against it.
+ * How the list is bundled.
  *
- * A tender shortlists several suppliers for the same product, and a flat list
- * of requests scatters exactly the rows a buyer needs side by side to compare.
- * Grouping mirrors the tender shortlist's own product-first layout (FR-SRC).
+ * Product is the default because a tender shortlists several suppliers for the
+ * same item, and comparing them is the actual task — a flat list scatters
+ * exactly the rows a buyer needs side by side. Supplier answers the other
+ * standing question ("what is open with A.H.A?"), and None is the escape hatch
+ * for when you are looking for one specific enquiry.
  */
-export type SourcingProductGroup = {
-  productId: number;
-  productName: string;
-  casNumber: string | null;
+export type GroupBy = "product" | "supplier" | "none";
+
+export const GROUP_BY_LABELS: Record<GroupBy, string> = {
+  product: "Product",
+  supplier: "Supplier",
+  none: "Nothing",
+};
+
+export type SourcingGroup = {
+  key: string;
+  /** The product or company this group is, used to pick a stable tile colour
+   *  — one that reshuffled on every re-sort would be worse than none. */
+  id: number;
+  title: string;
+  /** CAS number under a product heading, country/short name under a supplier
+   *  one — whatever the second line of that heading should read. */
+  subtitle: string | null;
   requests: SourcingRequestListItem[];
 };
 
-/** Groups in first-seen order, so the group order tracks whatever sort the
- *  caller applied to the underlying flat list. */
-export function groupSourcingByProduct(
+/** Groups in first-seen order, so group order tracks whatever sort the caller
+ *  applied to the underlying flat list. */
+export function groupSourcing(
   rows: SourcingRequestListItem[],
-): SourcingProductGroup[] {
-  const groups = new Map<number, SourcingProductGroup>();
+  by: GroupBy,
+): SourcingGroup[] {
+  if (by === "none") {
+    // One row per group renders as a flat list through the same code path,
+    // rather than a second table that would drift from this one.
+    return rows.map((row) => ({
+      key: `request-${row.id}`,
+      id: row.product.id,
+      title: row.product.name_en,
+      subtitle: row.product.cas_number ? `CAS ${row.product.cas_number}` : null,
+      requests: [row],
+    }));
+  }
+
+  const groups = new Map<string, SourcingGroup>();
   for (const row of rows) {
-    const existing = groups.get(row.product.id);
+    const key =
+      by === "product" ? `product-${row.product.id}` : `company-${row.company.id}`;
+    const existing = groups.get(key);
     if (existing) {
       existing.requests.push(row);
       continue;
     }
-    groups.set(row.product.id, {
-      productId: row.product.id,
-      productName: row.product.name_en,
-      casNumber: row.product.cas_number,
+    groups.set(key, {
+      key,
+      id: by === "product" ? row.product.id : row.company.id,
+      title: by === "product" ? row.product.name_en : row.company.name_en,
+      subtitle:
+        by === "product"
+          ? row.product.cas_number
+            ? `CAS ${row.product.cas_number}`
+            : "CAS N/A"
+          : row.company.name_cn,
       requests: [row],
     });
   }
   return [...groups.values()];
 }
 
-/** Sorted by count so the busiest status leads the summary string. */
-function statusBreakdown(
-  requests: SourcingRequestListItem[],
-): { status: SourcingStatus; count: number }[] {
-  const counts = new Map<SourcingStatus, number>();
-  for (const request of requests) {
-    counts.set(request.status, (counts.get(request.status) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([status, count]) => ({ status, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
-/** The soonest follow-up date across every supplier on this product — the one
- *  that should actually pull a buyer's eye when scanning the group header. */
-function earliestFollowUp(requests: SourcingRequestListItem[]): string | null {
-  const dates = requests
-    .map((request) => request.follow_up_on)
-    .filter((date): date is string => Boolean(date));
-  return dates.length > 0 ? dates.reduce((min, date) => (date < min ? date : min)) : null;
-}
-
 /**
- * The request list.
+ * The enquiry list.
  *
- * Each row answers the three questions a buyer scans for: what am I sourcing
- * and from whom, where does it stand, and when do I need to chase it. Clicking
- * a row opens the detail panel beside the table rather than navigating — the
- * reader is working through a queue and losing their place costs more than the
- * extra width.
- *
- * Table view groups by product (one accordion row per product, suppliers
- * underneath) since comparing a product's suppliers is the actual task; card
- * view stays a flat grid — comparison isn't the point of glancing at cards.
+ * The redesign's one structural change is the last column. The old table ended
+ * on "Due / Follow-up", a date the reader had to interpret; this one ends on a
+ * button that says what to do. Status stopped being a noun ("1 Response
+ * Received") and became a state plus a sentence about it — "Replied · New
+ * reply" — and Last Activity replaced the follow-up date as the thing a buyer
+ * scans, because how long a supplier has been silent is the question they are
+ * actually asking.
  */
 export function SourcingTable({
   rows,
@@ -122,17 +137,14 @@ export function SourcingTable({
   onResetFilters,
   view,
   onViewChange,
-  sort,
-  onSortChange,
-  onExport,
-  exporting,
+  groupBy,
+  onGroupByChange,
 }: {
   rows: SourcingRequestListItem[];
-  /** Pre-paginated product groups for table view — the caller (workspace)
-   *  fetches a larger flat page, groups it, and paginates the groups, since
-   *  the API paginates requests, not products (mirrors the tender detail
-   *  shortlist's own group-then-paginate split). */
-  groups: SourcingProductGroup[];
+  /** Pre-paginated groups — the caller fetches a larger flat page, groups it,
+   *  and paginates the groups, since the API paginates requests, not products
+   *  (the same split the tender detail shortlist uses). */
+  groups: SourcingGroup[];
   total: number;
   isFetching: boolean;
   error: unknown;
@@ -142,14 +154,12 @@ export function SourcingTable({
   onResetFilters: () => void;
   view: "list" | "grid";
   onViewChange: (view: "list" | "grid") => void;
-  sort: string;
-  onSortChange: (sort: string) => void;
-  onExport: () => void;
-  exporting: boolean;
+  groupBy: GroupBy;
+  onGroupByChange: (next: GroupBy) => void;
 }) {
   // Bulk selection lives here rather than in the workspace: it is entirely a
   // table concern (doesn't touch filters, sort, or which row the detail panel
-  // is showing), the same split used for the Tenders and Companies tables.
+  // is showing), the same split the Tenders and Companies tables use.
   const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
@@ -164,13 +174,16 @@ export function SourcingTable({
     });
   }
 
-  // Table view's "page" is a page of product groups, not of raw requests —
-  // `rows` here is the caller's larger unpaginated fetch behind the grouping,
-  // so bulk-select math has to walk the (already paginated) groups instead.
+  // List view's "page" is a page of groups, not of raw requests — `rows` is
+  // the caller's larger unpaginated fetch behind the grouping, so bulk-select
+  // math has to walk the (already paginated) groups instead.
   const pageIds =
-    view === "list" ? groups.flatMap((group) => group.requests.map((request) => request.id)) : rows.map((row) => row.id);
+    view === "list"
+      ? groups.flatMap((group) => group.requests.map((request) => request.id))
+      : rows.map((row) => row.id);
   const selectedOnPage = pageIds.filter((id) => bulkSelected.has(id));
-  const allOnPageSelected = pageIds.length > 0 && selectedOnPage.length === pageIds.length;
+  const allOnPageSelected =
+    pageIds.length > 0 && selectedOnPage.length === pageIds.length;
 
   function toggleAllOnPage() {
     setBulkSelected((current) => {
@@ -213,60 +226,54 @@ export function SourcingTable({
   return (
     <>
       <div className="flex flex-col gap-3 border-b border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <p className="text-sm font-bold text-foreground">
-          All Sourcing Enquiries{" "}
+        <p className="text-lg font-bold tracking-tight text-foreground">
+          All Enquiries{" "}
           <span className="tabular-nums">({total.toLocaleString()})</span>
         </p>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onExport}
-            disabled={exporting || total === 0}
-            className="h-9"
-          >
-            {exporting ? (
-              <Loader2 className="animate-spin" strokeWidth={2.25} />
-            ) : (
-              <Download strokeWidth={2.25} />
-            )}
-            Export
-          </Button>
+          {/* The label sits inside the control rather than beside it, so the
+              whole thing reads as one phrase — "Group by: Product" — instead
+              of a caption that could be mistaken for a column heading. */}
+          <label className="flex h-11 items-center gap-1.5 rounded-xl border border-input bg-card px-3.5 shadow-sm transition-colors focus-within:border-ring hover:border-ring/40">
+            <span className="whitespace-nowrap text-sm font-medium text-muted-foreground">
+              Group by:
+            </span>
+            <span className="relative flex items-center">
+              <select
+                value={groupBy}
+                onChange={(event) => onGroupByChange(event.target.value as GroupBy)}
+                aria-label="Group enquiries by"
+                className="cursor-pointer appearance-none bg-transparent pr-6 text-sm font-semibold text-foreground focus:outline-none"
+              >
+                {(Object.keys(GROUP_BY_LABELS) as GroupBy[]).map((key) => (
+                  <option key={key} value={key}>
+                    {GROUP_BY_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden
+                className="pointer-events-none absolute right-0 size-4 text-muted-foreground"
+                strokeWidth={2.25}
+              />
+            </span>
+          </label>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm">
+          <div className="flex items-center gap-1 rounded-xl border border-input bg-card p-1 shadow-sm">
             <ViewToggle
               active={view === "list"}
               onClick={() => onViewChange("list")}
               label="Table view"
-              icon={<List className="size-4" strokeWidth={2.25} />}
+              icon={<List className="size-[18px]" strokeWidth={2.25} />}
             />
             <ViewToggle
               active={view === "grid"}
               onClick={() => onViewChange("grid")}
               label="Card view"
-              icon={<LayoutGrid className="size-4" strokeWidth={2.25} />}
+              icon={<LayoutGrid className="size-[18px]" strokeWidth={2.25} />}
             />
           </div>
-
-          <label className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
-              Sort by:
-            </span>
-            <select
-              value={sort}
-              onChange={(event) => onSortChange(event.target.value)}
-              aria-label="Sort enquiries"
-              className="h-9 cursor-pointer rounded-lg border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
-            >
-              <option value="updated_at:desc">Updated (Newest)</option>
-              <option value="created_at:desc">Created (Newest)</option>
-              <option value="created_at:asc">Created (Oldest)</option>
-              <option value="follow_up_on:asc">Follow-up (Soonest)</option>
-              <option value="status:asc">Status</option>
-            </select>
-          </label>
         </div>
       </div>
 
@@ -295,6 +302,7 @@ export function SourcingTable({
           {view === "list" ? (
             <GroupedListView
               groups={groups}
+              groupBy={groupBy}
               selectedId={selectedId}
               onSelect={onSelect}
               bulkSelected={bulkSelected}
@@ -316,7 +324,7 @@ export function SourcingTable({
             <>
               Are you sure you want to delete{" "}
               <span className="font-semibold text-foreground">
-                {bulkSelected.size} request{bulkSelected.size === 1 ? "" : "s"}
+                {bulkSelected.size} enquir{bulkSelected.size === 1 ? "y" : "ies"}
               </span>
               ? This cannot be undone from here.
             </>
@@ -333,6 +341,7 @@ export function SourcingTable({
 
 function GroupedListView({
   groups,
+  groupBy,
   selectedId,
   onSelect,
   bulkSelected,
@@ -341,7 +350,8 @@ function GroupedListView({
   someOnPageSelected,
   onToggleAll,
 }: {
-  groups: SourcingProductGroup[];
+  groups: SourcingGroup[];
+  groupBy: GroupBy;
   selectedId: number | null;
   onSelect: (request: SourcingRequestListItem) => void;
   bulkSelected: Set<number>;
@@ -352,17 +362,18 @@ function GroupedListView({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
+      <table className="w-full min-w-[1080px] table-fixed border-collapse text-sm">
         <colgroup>
-          <col className="w-11" />
-          <col className="w-[32%]" />
-          <col className="w-[19%]" />
-          <col className="w-[26%]" />
-          <col className="w-[160px]" />
+          <col className="w-12" />
+          <col className="w-[30%]" />
+          <col className="w-[17%]" />
+          <col className="w-[17%]" />
+          <col className="w-[18%]" />
+          <col className="w-[168px]" />
           <col className="w-[56px]" />
         </colgroup>
         <thead>
-          <tr className="border-b border-border/60 bg-secondary/40">
+          <tr className="border-b border-border/60">
             <th scope="col" className="px-4 py-3.5">
               <Checkbox
                 checked={allOnPageSelected}
@@ -376,17 +387,19 @@ function GroupedListView({
               />
             </th>
             <HeaderCell>Product / CAS No.</HeaderCell>
-            <HeaderCell>Related To</HeaderCell>
+            <HeaderCell>Supplier</HeaderCell>
             <HeaderCell>Status</HeaderCell>
-            <HeaderCell>Due / Follow-up</HeaderCell>
+            <HeaderCell>Last Activity</HeaderCell>
+            <HeaderCell>Next Action</HeaderCell>
             <HeaderCell> </HeaderCell>
           </tr>
         </thead>
         <tbody>
           {groups.map((group) => (
-            <ProductGroupRows
-              key={group.productId}
+            <GroupRows
+              key={group.key}
               group={group}
+              groupBy={groupBy}
               selectedId={selectedId}
               onSelect={onSelect}
               bulkSelected={bulkSelected}
@@ -399,25 +412,35 @@ function GroupedListView({
   );
 }
 
-/** One accordion section per product: a summary row a buyer scans to decide
- *  whether this product needs attention, then its suppliers underneath once
- *  expanded — the comparison a flat list used to scatter across the page. */
-function ProductGroupRows({
+/**
+ * One accordion section per group, open by default.
+ *
+ * Collapsed-by-default was the old behaviour and it was wrong: a buyer opening
+ * this screen wants to see the enquiries, not a list of headings to click. The
+ * heading is now a summary you can fold away once you have dealt with it,
+ * which is the opposite default and the right one.
+ *
+ * Selection lives on the heading and nowhere else. A tender shortlists the
+ * same product to several suppliers and they are acted on together, so a
+ * checkbox per supplier row was six controls offering a choice nobody makes —
+ * one per product is the unit of work.
+ */
+function GroupRows({
   group,
+  groupBy,
   selectedId,
   onSelect,
   bulkSelected,
   onToggleBulk,
 }: {
-  group: SourcingProductGroup;
+  group: SourcingGroup;
+  groupBy: GroupBy;
   selectedId: number | null;
   onSelect: (request: SourcingRequestListItem) => void;
   bulkSelected: Set<number>;
   onToggleBulk: (id: number) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const breakdown = statusBreakdown(group.requests);
-  const due = dueIn(earliestFollowUp(group.requests));
+  const [expanded, setExpanded] = useState(true);
 
   const groupIds = group.requests.map((request) => request.id);
   const checkedInGroup = groupIds.filter((id) => bulkSelected.has(id));
@@ -431,83 +454,101 @@ function ProductGroupRows({
     }
   }
 
+  // With no grouping there is no heading to hang the checkbox on, so each row
+  // carries its own — it is its own group of one.
+  if (groupBy === "none") {
+    return (
+      <>
+        {group.requests.map((request) => (
+          <EnquiryRow
+            key={request.id}
+            request={request}
+            showProduct
+            selectable
+            selected={request.id === selectedId}
+            onSelect={() => onSelect(request)}
+            bulkChecked={bulkSelected.has(request.id)}
+            onToggleBulk={() => onToggleBulk(request.id)}
+          />
+        ))}
+      </>
+    );
+  }
+
+  const count = group.requests.length;
+  const Icon = groupBy === "product" ? FlaskConical : Building2;
+
   return (
     <>
       <tr
         onClick={() => setExpanded((current) => !current)}
-        className="cursor-pointer border-b border-border/40 bg-card transition-colors hover:bg-accent/30"
+        className="cursor-pointer border-b border-border/40 bg-card transition-colors hover:bg-accent/25"
       >
-        <td className="px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+        <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
           <Checkbox
             checked={allGroupChecked}
             indeterminate={someGroupChecked}
             onChange={toggleGroup}
-            aria-label={`Select every supplier for ${group.productName}`}
+            aria-label={`Select every enquiry under ${group.title}`}
           />
         </td>
 
-        <td className="overflow-hidden px-4 py-3.5">
-          <div className="flex items-center gap-2.5">
+        {/* Spans the product and supplier columns: the heading names the
+            product, and the rows beneath name the suppliers in the same
+            visual channel, indented under it. */}
+        <td className="overflow-hidden py-4 pl-1 pr-4" colSpan={2}>
+          <div className="flex items-center gap-3">
             {expanded ? (
-              <ChevronDown className="size-4 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+              <ChevronDown
+                className="size-4 shrink-0 text-muted-foreground"
+                strokeWidth={2.5}
+              />
             ) : (
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" strokeWidth={2.5} />
+              <ChevronRight
+                className="size-4 shrink-0 text-muted-foreground"
+                strokeWidth={2.5}
+              />
             )}
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tile-green-bg text-tile-green ring-1 ring-inset ring-tile-green/15">
-              <FlaskConical className="size-[18px]" strokeWidth={2} />
+            <span
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
+                groupTile(group.id),
+              )}
+            >
+              <Icon className="size-5" strokeWidth={2} />
             </span>
             <div className="min-w-0">
               <p
-                className="truncate text-sm font-bold text-foreground"
-                title={group.productName}
+                className="truncate text-[15px] font-bold leading-tight text-foreground"
+                title={group.title}
               >
-                {group.productName}
+                {group.title}
               </p>
-              <p className="truncate text-xs font-medium text-muted-foreground">
-                CAS {group.casNumber || "N/A"}
-              </p>
+              {group.subtitle && (
+                <p className="mt-0.5 truncate text-[13px] font-medium text-muted-foreground">
+                  {group.subtitle}
+                </p>
+              )}
             </div>
+            <span className="ml-3 shrink-0 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
+              {count} {count === 1 ? "enquiry" : "enquiries"}
+            </span>
           </div>
         </td>
 
-        <td className="overflow-hidden px-4 py-3.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground">
-            {group.requests.length} {group.requests.length === 1 ? "supplier" : "suppliers"}
-          </span>
-        </td>
-
-        <td className="overflow-hidden px-4 py-3.5">
-          <p className="truncate text-xs font-semibold text-foreground">
-            {breakdown
-              .map(({ status, count }) => `${count} ${STATUS_STYLES[status].label}`)
-              .join(" · ")}
-          </p>
-        </td>
-
-        <td className="overflow-hidden px-4 py-3.5">
-          {due ? (
-            <p
-              className={cn(
-                "flex items-center gap-1.5 text-xs font-semibold",
-                due.overdue ? "text-destructive" : "text-tile-amber",
-              )}
-            >
-              <Calendar className="size-3.5 shrink-0" strokeWidth={2} />
-              {due.text}
-            </p>
-          ) : (
-            <span className="text-xs font-medium text-muted-foreground/60">—</span>
-          )}
-        </td>
-
-        <td className="px-2 py-3.5" />
+        {/* Left empty on purpose. The heading's job is to name the product and
+            say how many suppliers are under it; repeating a rolled-up status
+            here would compete with the rows that carry the real ones. */}
+        <td colSpan={4} />
       </tr>
 
       {expanded &&
         group.requests.map((request) => (
-          <SupplierRow
+          <EnquiryRow
             key={request.id}
             request={request}
+            showProduct={groupBy === "supplier"}
+            selectable={false}
             selected={request.id === selectedId}
             onSelect={() => onSelect(request)}
             bulkChecked={bulkSelected.has(request.id)}
@@ -518,102 +559,131 @@ function ProductGroupRows({
   );
 }
 
-/** One supplier enquiry, indented under its product's header row. */
-function SupplierRow({
+/** One supplier enquiry, indented under its group heading. */
+function EnquiryRow({
   request,
+  showProduct,
+  selectable,
   selected,
   onSelect,
   bulkChecked,
   onToggleBulk,
 }: {
   request: SourcingRequestListItem;
+  /** True when the heading above is not already naming the product. */
+  showProduct: boolean;
+  /** Only the ungrouped view puts a checkbox on the row itself. */
+  selectable: boolean;
   selected: boolean;
   onSelect: () => void;
   bulkChecked: boolean;
   onToggleBulk: () => void;
 }) {
   const status = STATUS_STYLES[request.status];
-  const due = dueIn(request.follow_up_on);
+  const detail = statusDetail(request);
+  const action = nextAction(request);
   const deleteRequest = useDeleteSourcingRequest();
   const [confirming, setConfirming] = useState(false);
+
+  const due = dueIn(request.follow_up_on);
+  const reference = request.tender
+    ? request.tender.reference_no ?? request.tender.name
+    : referenceOf(request);
 
   return (
     <tr
       onClick={onSelect}
       className={cn(
-        "cursor-pointer border-b border-dashed border-border/40 transition-colors",
-        selected ? "bg-primary/[0.05]" : "hover:bg-accent/40",
+        "cursor-pointer border-b border-border/40 transition-colors",
+        selected ? "bg-primary/[0.05]" : "hover:bg-accent/30",
       )}
     >
-      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-        <Checkbox
-          checked={bulkChecked}
-          onChange={onToggleBulk}
-          aria-label={`Select ${request.company.name_en}`}
-        />
+      <td className="px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
+        {selectable && (
+          <Checkbox
+            checked={bulkChecked}
+            onChange={onToggleBulk}
+            aria-label={`Select ${request.company.name_en}`}
+          />
+        )}
       </td>
 
-      <td className="overflow-hidden py-3 pl-11 pr-4">
-        <div className="flex items-center gap-1.5">
-          <Building2 className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-xs font-bold text-foreground" title={request.company.name_en}>
-            {request.company.name_en}
-          </span>
+      {/* Indented into the heading's channel and spanning the same two
+          columns, so the supplier reads as a child of the product above it. */}
+      <td className="overflow-hidden py-3.5 pl-11 pr-4" colSpan={2}>
+        <div className="flex items-start gap-2.5">
+          <Building2
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
+          <div className="min-w-0">
+            <p
+              className="truncate text-sm font-bold leading-tight text-foreground"
+              title={request.company.name_en}
+            >
+              {request.company.name_en}
+            </p>
+            <p className="mt-0.5 truncate text-[13px] font-medium text-muted-foreground">
+              {showProduct ? request.product.name_en : reference}
+            </p>
+          </div>
         </div>
       </td>
 
-      <td className="overflow-hidden px-4 py-3">
-        {request.tender ? (
-          <>
-            <p className="truncate text-xs font-bold text-foreground">
-              {request.tender.reference_no ?? `Tender #${request.tender.id}`}
-            </p>
-            <p className="truncate text-xs font-medium text-muted-foreground">
-              {request.tender.name}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-xs font-bold text-foreground">No Tender</p>
-            <p className="text-xs font-medium text-muted-foreground">Speculative Enquiry</p>
-          </>
-        )}
-      </td>
-
-      <td className="overflow-hidden px-4 py-3">
+      <td className="overflow-hidden px-4 py-3.5">
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
+            "inline-flex items-center whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold",
             status.badge,
           )}
         >
-          <span className={cn("size-1.5 shrink-0 rounded-full", status.dot)} />
           {status.label}
         </span>
+        {/* The sentence under the badge is what makes the status actionable —
+            "Replied" is where it sits, "New reply" is what that means today. */}
+        <p className="mt-1.5 flex items-center gap-1.5 truncate text-[13px] font-medium text-muted-foreground">
+          {detail.dot && (
+            <span className={cn("size-1.5 shrink-0 rounded-full", detail.dot)} />
+          )}
+          {detail.text}
+        </p>
       </td>
 
-      <td className="overflow-hidden px-4 py-3">
-        {due ? (
-          <>
-            <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-              <Calendar className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-              {formatDate(request.follow_up_on)}
-            </p>
-            <p
-              className={cn(
-                "mt-0.5 text-xs font-semibold",
-                due.overdue ? "text-destructive" : "text-tile-amber",
-              )}
-            >
-              {due.text}
-            </p>
-          </>
-        ) : (
-          <span className="text-xs font-medium text-muted-foreground/60">—</span>
+      <td className="overflow-hidden px-4 py-3.5">
+        <p className="truncate text-[13px] font-semibold text-foreground">
+          {relativeTime(request.last_activity_at)}
+        </p>
+        <p className="mt-0.5 truncate text-[13px] font-medium text-muted-foreground">
+          {formatDateTime(request.last_activity_at)}
+        </p>
+        {due?.overdue && (
+          <p className="mt-0.5 truncate text-[13px] font-semibold text-destructive">
+            Follow-up {due.text.toLowerCase()}
+          </p>
         )}
       </td>
 
-      <td className="px-2 py-3" onClick={(event) => event.stopPropagation()}>
+      <td className="px-4 py-3.5">
+        {/* Opens the same enquiry as clicking the row. The button exists for
+            its label: naming the next step is what turns a report into a
+            queue, and a reader who only scans this column still knows what
+            the row wants from them. */}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect();
+          }}
+          className={cn(
+            "w-full rounded-lg px-3 py-2 text-center text-[13px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            action.tone,
+          )}
+        >
+          {action.label}
+        </button>
+      </td>
+
+      <td className="px-2 py-3.5" onClick={(event) => event.stopPropagation()}>
         <div className="flex justify-end">
           <RowMenu
             row={request}
@@ -626,18 +696,22 @@ function SupplierRow({
 
       {confirming && (
         <ConfirmDialog
-          title="Delete this sourcing request?"
+          title="Delete this sourcing enquiry?"
           description={
             <>
               Are you sure you want to delete the enquiry for{" "}
-              <span className="font-semibold text-foreground">{request.product.name_en}</span>{" "}
+              <span className="font-semibold text-foreground">
+                {request.product.name_en}
+              </span>{" "}
               — {request.company.name_en}? This cannot be undone from here.
             </>
           }
           confirmLabel="Delete"
           busy={deleteRequest.isPending}
           onConfirm={() => {
-            deleteRequest.mutate(request.id, { onSettled: () => setConfirming(false) });
+            deleteRequest.mutate(request.id, {
+              onSettled: () => setConfirming(false),
+            });
           }}
           onCancel={() => setConfirming(false)}
         />
@@ -656,10 +730,12 @@ function CardView({
   onSelect: (request: SourcingRequestListItem) => void;
 }) {
   return (
-    <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
+    <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 2xl:grid-cols-3">
       {rows.map((row) => {
         const status = STATUS_STYLES[row.status];
-        const due = dueIn(row.follow_up_on);
+        const detail = statusDetail(row);
+        const action = nextAction(row);
+
         return (
           <button
             key={row.id}
@@ -696,27 +772,26 @@ function CardView({
                 <span className={cn("size-1.5 rounded-full", status.dot)} />
                 {status.label}
               </span>
-              <span className="font-mono text-[11px] font-semibold text-muted-foreground">
-                {referenceOf(row)}
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+                {detail.dot && (
+                  <span className={cn("size-1.5 rounded-full", detail.dot)} />
+                )}
+                {detail.text}
               </span>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-2.5 text-xs">
-              <span className="truncate font-medium text-muted-foreground">
-                {row.tender
-                  ? row.tender.reference_no ?? row.tender.name
-                  : "Speculative Enquiry"}
+            <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
+              <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+                {relativeTime(row.last_activity_at)}
               </span>
-              {due && (
-                <span
-                  className={cn(
-                    "shrink-0 font-semibold",
-                    due.overdue ? "text-destructive" : "text-tile-amber",
-                  )}
-                >
-                  {due.text}
-                </span>
-              )}
+              <span
+                className={cn(
+                  "shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  action.tone,
+                )}
+              >
+                {action.label}
+              </span>
             </div>
           </button>
         );
@@ -767,6 +842,15 @@ function RowMenu({
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {
+              close();
+              onOpen();
+            }}
+          >
+            <Send />
+            Open conversation
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
               navigator.clipboard?.writeText(referenceOf(row));
               close();
             }}
@@ -775,12 +859,13 @@ function RowMenu({
             Copy reference
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* Sending is the Gmail slice, which is not built yet. Shown disabled
-              rather than hidden: the action belongs here, and hiding it would
-              make the row look like it has nothing to do. */}
-          <DropdownMenuItem disabled title="Email sending is not connected yet">
-            <Send />
-            Send enquiry
+          {/* Reading a quotation out of a supplier's reply is the extraction
+              slice, which is not built. Shown disabled rather than hidden:
+              the action belongs here, and hiding it would make the row look
+              like it has nothing to do. */}
+          <DropdownMenuItem disabled title="Quotation capture is not built yet">
+            <FileText />
+            Record a quotation
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -852,7 +937,7 @@ function HeaderCell({ children }: { children: React.ReactNode }) {
   return (
     <th
       scope="col"
-      className="px-4 py-3 text-left text-xs font-bold text-foreground"
+      className="px-4 py-3.5 text-left text-[13px] font-semibold text-muted-foreground"
     >
       {children}
     </th>
@@ -878,9 +963,9 @@ function ViewToggle({
       title={label}
       aria-pressed={active}
       className={cn(
-        "rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "flex size-9 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         active
-          ? "bg-primary text-primary-foreground shadow-sm"
+          ? "bg-foreground text-background shadow-sm"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
       )}
     >
@@ -944,7 +1029,7 @@ function TableEmpty({
         <p className="max-w-md text-xs font-medium text-muted-foreground">
           {filtered
             ? "Try a different stage, or clear the filters to see everything."
-            : "Start one from a product's supplier list, or with New Sourcing Enquiry."}
+            : "Start one from a tender's shortlist, or from a product's supplier list."}
         </p>
       </div>
       {filtered && (
