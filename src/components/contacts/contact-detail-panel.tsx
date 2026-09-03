@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   Briefcase,
@@ -9,7 +10,6 @@ import {
   Mail,
   MessageCircle,
   Phone,
-  RefreshCw,
   Send,
   Smartphone,
   Star,
@@ -17,10 +17,11 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
-import { useContact, useContactActivity } from "@/lib/queries";
+import { ComposeDialog } from "@/components/inbox/compose-dialog";
+import { useAuth } from "@/lib/auth";
+import { useContact } from "@/lib/queries";
 import { flagFor } from "@/lib/search-facets";
-import { cn } from "@/lib/utils";
-import type { ContactActivityEntry, SearchChannel } from "@/types/api";
+import type { SearchChannel } from "@/types/api";
 
 /** "Daisy Dai" → "DD" — same rule used for the tender activity feed's avatar. */
 function initialsFromName(name: string): string {
@@ -32,20 +33,12 @@ function initialsFromName(name: string): string {
     .join("");
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 /**
- * The selected contact's detail panel — company, how to reach them, and
- * their own real communication history. No Languages / Region-Market /
- * Products-of-Interest section: none of that exists on a contact today, and
- * showing empty placeholders for fields nobody can fill in yet would read as
- * broken rather than simply unbuilt.
+ * The selected contact's detail panel — company, how to reach them, and a
+ * way to write to them. No Languages / Region-Market / Products-of-Interest
+ * section: none of that exists on a contact today, and showing empty
+ * placeholders for fields nobody can fill in yet would read as broken rather
+ * than simply unbuilt.
  */
 export function ContactDetailPanel({
   contactId,
@@ -54,8 +47,9 @@ export function ContactDetailPanel({
   contactId: number;
   onClose: () => void;
 }) {
+  const { user } = useAuth();
   const { data: contact, isLoading } = useContact(contactId);
-  const { data: activity, isLoading: activityLoading } = useContactActivity(contactId);
+  const [composing, setComposing] = useState(false);
 
   if (isLoading || !contact) {
     return (
@@ -70,6 +64,7 @@ export function ContactDetailPanel({
   const mobile = contact.channels.find((channel) => channel.channel === "mobile");
   const wechat = contact.channels.find((channel) => channel.channel === "wechat");
   const flag = contact.company.country ? flagFor(contact.company.country.iso2) : null;
+  const canSend = user?.role === "owner";
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-border/60 bg-card shadow-sm">
@@ -178,42 +173,40 @@ export function ContactDetailPanel({
             </p>
           </section>
         )}
-
-        <section className="space-y-2">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-            Recent Activities
-          </h3>
-          {activityLoading ? (
-            <div className="flex justify-center py-3">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : !activity || activity.length === 0 ? (
-            <p className="text-xs font-medium text-muted-foreground">
-              No emails logged with this contact yet.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {activity.map((entry) => (
-                <ActivityRow key={entry.id} entry={entry} />
-              ))}
-            </ul>
-          )}
-        </section>
       </div>
 
       <footer className="border-t border-border/60 p-4">
-        {/* Real send is the Gmail slice, which needs OAuth credentials that do
-            not exist yet (same state as Sourcing's own "Send Follow-up"). */}
+        {/* Same compose dialog the Inbox uses. It sends through
+            `/mailbox/inbox/send`, which is owner-only because it sends from
+            the client's own Gmail — so staff get the button explained rather
+            than a 403 they cannot act on. */}
         <Button
           type="button"
-          disabled
-          title="Email sending is not connected yet"
+          onClick={() => setComposing(true)}
+          disabled={!email || !canSend}
+          title={
+            !email
+              ? "No email address on file for this contact"
+              : !canSend
+                ? "Only the account owner can send email from the connected mailbox"
+                : undefined
+          }
           className="w-full"
         >
           <Send strokeWidth={2.25} />
           Send Message / Email
         </Button>
       </footer>
+
+      {/* Conditionally mounted and keyed on the recipient, so switching
+          contacts never carries the previous draft into the next compose. */}
+      {composing && email && (
+        <ComposeDialog
+          key={`contact:${contact.id}`}
+          onClose={() => setComposing(false)}
+          initialTo={email.value}
+        />
+      )}
     </div>
   );
 }
@@ -260,38 +253,5 @@ function ChannelRow({
         </button>
       )}
     </div>
-  );
-}
-
-function ActivityRow({ entry }: { entry: ContactActivityEntry }) {
-  const outbound = entry.direction === "outbound";
-  return (
-    <li className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-card px-3 py-2.5">
-      <span
-        className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-lg",
-          outbound ? "bg-tile-blue-bg text-tile-blue" : "bg-tile-green-bg text-tile-green",
-        )}
-      >
-        {outbound ? (
-          <Send className="size-3.5" strokeWidth={2.25} />
-        ) : (
-          <RefreshCw className="size-3.5" strokeWidth={2.25} />
-        )}
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs font-bold text-foreground">
-          {outbound ? "Email sent" : "Reply received"}
-        </p>
-        {entry.subject && (
-          <p className="truncate text-[11px] font-medium text-muted-foreground">
-            {entry.subject}
-          </p>
-        )}
-        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground/80">
-          {formatDate(entry.occurred_at)}
-        </p>
-      </div>
-    </li>
   );
 }

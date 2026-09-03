@@ -1942,6 +1942,9 @@ export function useSendDirectMail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
       queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      // A direct send can also be a mail to a contact — sent from their detail
+      // panel — and the Contacts stat cards count the same rows.
+      queryClient.invalidateQueries({ queryKey: keys.contacts.all });
     },
   });
 }
