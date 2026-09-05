@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { TrendingUp } from "lucide-react";
+import { monotoneArea, monotonePath } from "@/components/dashboard/curve";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { DashboardSeries, DashboardSeriesKey } from "@/types/api";
@@ -21,10 +23,30 @@ import type { DashboardSeries, DashboardSeriesKey } from "@/types/api";
  * out as records are added day to day.
  */
 
-const PANELS: { key: DashboardSeriesKey; label: string; href: string }[] = [
-  { key: "manufacturers", label: "Manufacturers", href: "/companies" },
-  { key: "products", label: "Products", href: "/products" },
-  { key: "contacts", label: "Contacts", href: "/contacts" },
+const PANELS: {
+  key: DashboardSeriesKey;
+  label: string;
+  tone: string;
+  tint: string;
+}[] = [
+  {
+    key: "manufacturers",
+    label: "Manufacturers",
+    tone: "text-tile-green",
+    tint: "bg-tile-green-bg",
+  },
+  {
+    key: "products",
+    label: "Products",
+    tone: "text-tile-blue",
+    tint: "bg-tile-blue-bg",
+  },
+  {
+    key: "contacts",
+    label: "Contacts",
+    tone: "text-tile-purple",
+    tint: "bg-tile-purple-bg",
+  },
 ];
 
 const RANGES = [
@@ -61,11 +83,16 @@ export function GrowthChart({
     <Card className="flex flex-col p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
-            Growth Overview
-          </h2>
-          <p className="mt-0.5 text-xs font-medium text-muted-foreground sm:text-sm">
-            Running totals, each panel on its own scale
+          <div className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <TrendingUp className="size-4" strokeWidth={2.25} />
+            </span>
+            <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
+              Growth pulse
+            </h2>
+          </div>
+          <p className="mt-1 text-xs font-medium text-muted-foreground sm:text-sm">
+            Cumulative growth, with a scale tailored to each measure
           </p>
         </div>
 
@@ -95,7 +122,7 @@ export function GrowthChart({
 
       <div
         className={cn(
-          "mt-5 flex-1 space-y-4 transition-opacity duration-200",
+          "mt-5 flex-1 space-y-3 transition-opacity duration-200",
           isFetching && "opacity-60",
         )}
         onMouseLeave={() => setHover(null)}
@@ -112,6 +139,8 @@ export function GrowthChart({
                 <Panel
                   key={panel.key}
                   label={panel.label}
+                  tone={panel.tone}
+                  tint={panel.tint}
                   entry={panel.entry}
                   hover={hover}
                   onHover={setHover}
@@ -132,11 +161,15 @@ export function GrowthChart({
 
 function Panel({
   label,
+  tone,
+  tint,
   entry,
   hover,
   onHover,
 }: {
   label: string;
+  tone: string;
+  tint: string;
   entry: DashboardSeries;
   hover: number | null;
   onHover: (index: number | null) => void;
@@ -149,25 +182,32 @@ function Panel({
   const span = high - low || 1;
 
   const width = 100;
-  const height = 40;
+  const height = 48;
   const y = (value: number) =>
-    flat ? height / 2 : height - ((value - low) / span) * (height - 6) - 3;
+    flat ? height / 2 : height - ((value - low) / span) * (height - 10) - 5;
   const x = (index: number) => (index / (points.length - 1 || 1)) * width;
 
-  const line = `M${points
-    .map((point, index) => `${x(index).toFixed(2)},${y(point.value).toFixed(2)}`)
-    .join("L")}`;
-  const area = `${line}L${width},${height}L0,${height}Z`;
+  const coordinates = points.map((point, index) => ({
+    x: x(index),
+    y: y(point.value),
+  }));
+  const line = monotonePath(coordinates);
+  const area = monotoneArea(coordinates, height);
 
   const active = hover !== null && hover < points.length ? points[hover] : null;
+  const latest = points[points.length - 1];
+  const change = latest.value - points[0].value;
 
   return (
-    <div>
+    <div className={cn("rounded-xl border border-border/60 p-3", tint)}>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="truncate text-xs font-semibold text-foreground">
-          {label}
-        </span>
-        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+        <div className="min-w-0">
+          <span className="block truncate text-xs font-bold text-foreground">{label}</span>
+          <span className="mt-0.5 block text-[11px] font-medium tabular-nums text-muted-foreground">
+            {change > 0 ? `+${change.toLocaleString()} added` : "No change"}
+          </span>
+        </div>
+        <span className="shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">
           {active ? (
             <>
               <span className="font-bold text-foreground">
@@ -177,14 +217,15 @@ function Panel({
             </>
           ) : (
             <>
-              {low.toLocaleString()} → {high.toLocaleString()}
+              <span className="font-bold text-foreground">{latest.value.toLocaleString()}</span>
+              <span className="ml-1">total</span>
             </>
           )}
         </span>
       </div>
 
       <div
-        className="relative mt-1.5 h-[52px] w-full"
+        className={cn("relative mt-2 h-[58px] w-full", tone)}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const ratio = (event.clientX - rect.left) / rect.width;
@@ -195,7 +236,7 @@ function Panel({
         <svg
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
-          className="h-full w-full overflow-visible text-primary"
+          className="h-full w-full overflow-visible"
           role="img"
           aria-label={`${label}: ${low.toLocaleString()} to ${high.toLocaleString()} over the window`}
         >
@@ -206,6 +247,19 @@ function Panel({
             </linearGradient>
           </defs>
 
+          {[12, 24, 36].map((grid) => (
+            <line
+              key={grid}
+              x1="0"
+              y1={grid}
+              x2={width}
+              y2={grid}
+              stroke="currentColor"
+              strokeOpacity="0.13"
+              strokeDasharray="2 3"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
           <path d={area} fill={`url(#growth-${entry.key})`} />
           <path
             d={line}
@@ -216,6 +270,18 @@ function Panel({
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
           />
+
+          {!active && (
+            <circle
+              cx={x(points.length - 1)}
+              cy={y(latest.value)}
+              r="2.75"
+              fill="currentColor"
+              stroke="var(--card)"
+              strokeWidth="1.75"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
 
           {active && hover !== null && (
             <>

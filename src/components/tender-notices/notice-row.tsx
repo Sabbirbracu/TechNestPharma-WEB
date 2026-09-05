@@ -57,13 +57,24 @@ export function NoticeRow({
               {NOTICE_STATUS_LABEL[notice.status]}
             </span>
           </div>
+          {/* Source, when it was published, the site's own tender number, and
+              how many tenders are inside. The item count is deliberately NOT
+              here: items belong to a tender, not to the notice, so "1 tender ·
+              4 items" invited the row to be read as though the notice held
+              four of something at its own level. The count that means
+              something at this level is the tender count, and the mapping bar
+              on the right already says how many lines are settled. */}
           <p className="mt-0.5 truncate text-[11px] font-medium text-muted-foreground">
             {notice.source_name ?? "Unknown source"}
-            {notice.notice_date ? ` · ${formatDate(notice.notice_date)}` : ""}
-            {notice.tender_count > 0
-              ? ` · ${notice.tender_count} tender${notice.tender_count === 1 ? "" : "s"}`
+            {notice.notice_date
+              ? ` · Published: ${formatDate(notice.notice_date)}`
               : ""}
-            {notice.item_count > 0 ? ` · ${notice.item_count} items` : ""}
+            {notice.source_refs.length > 0
+              ? ` · Tender No: ${notice.source_refs.join(", ")}`
+              : ""}
+            {notice.tender_count > 0
+              ? ` · ${notice.tender_count} Tender${notice.tender_count === 1 ? "" : "s"}`
+              : ""}
           </p>
         </div>
 

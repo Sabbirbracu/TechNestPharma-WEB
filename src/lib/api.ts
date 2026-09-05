@@ -8,6 +8,8 @@
  *   attach the in-memory access token via `setAccessToken`.
  */
 
+import { parseRetryAfter, reportRateLimit } from "./rate-limit";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -66,11 +68,21 @@ function errorMessageFrom(payload: unknown, status: number): string {
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  constructor(status: number, message: string, detail?: unknown) {
+  /** Seconds to wait, off the `Retry-After` header. Set on 429s; null
+   *  otherwise. The query client schedules its retry from this rather than
+   *  from a guessed backoff, and the banner counts it down. */
+  retryAfterSeconds: number | null;
+  constructor(
+    status: number,
+    message: string,
+    detail?: unknown,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -184,11 +196,19 @@ export async function apiFetch<T = unknown>(
   const payload = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
-    throw new ApiError(
-      res.status,
-      errorMessageFrom(isJson ? payload : null, res.status),
-      payload,
-    );
+    const message = errorMessageFrom(isJson ? payload : null, res.status);
+    const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
+
+    // Reported here rather than at any call site, so a 429 on ANY request —
+    // a background refetch, a mutation, a page nobody is looking at — reaches
+    // the banner. The header is only readable because the API adds
+    // `Retry-After` to its CORS `expose_headers`; without that a cross-origin
+    // fetch sees the status and the body and nothing else.
+    if (res.status === 429) {
+      reportRateLimit(retryAfter ?? 60, message);
+    }
+
+    throw new ApiError(res.status, message, payload, retryAfter);
   }
 
   return payload as T;

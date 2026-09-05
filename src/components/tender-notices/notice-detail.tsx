@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FileText, Gauge, Loader2, Table2 } from "lucide-react";
 import { useTenderNotice } from "@/lib/queries";
 import { Callout } from "./notice-callout";
+import { CrossCheckCallout } from "./notice-cross-check";
 import { ExtractionSummary } from "./notice-extraction-summary";
 import { Header } from "./notice-header";
 import { isGuessedText } from "./notice-taxonomy";
@@ -33,6 +34,17 @@ type Panel = "tenders" | "document" | "summary";
 export function NoticeDetail({ noticeId }: { noticeId: number }) {
   const { data: notice, isPending } = useTenderNotice(noticeId);
   const [panel, setPanel] = useState<Panel>("tenders");
+  const panelRef = useRef<HTMLElement>(null);
+
+  /** The Tender PDF card's target. It switches the panel below rather than
+   *  opening a new tab — the reader wants the scan *beside* the tender table,
+   *  which is why that panel embeds the document in the first place — and then
+   *  scrolls to it, because on a laptop the panel starts below the fold and a
+   *  card that appears to do nothing is worse than no card. */
+  function showDocument() {
+    setPanel("document");
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   if (isPending) {
     return (
@@ -66,13 +78,24 @@ export function NoticeDetail({ noticeId }: { noticeId: number }) {
           before confirming — a misread reference number is a lost bid.
         </Callout>
       )}
+      {/* Sits directly under the OCR warning, because it is the partial
+          answer to it: the site publishes the same tender numbers as text,
+          so at least those can be verified rather than trusted. */}
+      <CrossCheckCallout check={notice.cross_check} />
 
-      <SummaryBand notice={notice} readiness={readiness} />
+      <SummaryBand
+        notice={notice}
+        readiness={readiness}
+        onOpenDocument={showDocument}
+      />
 
       {/* One full-width panel with tabs, rather than a table squeezed beside a
           sidebar. The document and the extraction figures are reference
           material — worth a click, not worth a permanent third of the width. */}
-      <section className="overflow-hidden rounded-xl border border-border/60 bg-card">
+      <section
+        ref={panelRef}
+        className="scroll-mt-4 overflow-hidden rounded-xl border border-border/60 bg-card"
+      >
         <div className="border-b border-border/60 px-4 py-3">
           <nav
             aria-label="Notice detail"

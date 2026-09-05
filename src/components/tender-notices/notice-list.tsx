@@ -9,6 +9,7 @@ import { SelectionBar } from "@/components/ui/selection-bar";
 import { EmptyState } from "@/components/empty-state";
 import { useDeleteNotice, useTenderNotices } from "@/lib/queries";
 import { NoticeRow } from "./notice-row";
+import { SourceStatusBand } from "./source-status-band";
 import { UploadButton } from "./notice-upload-button";
 
 /**
@@ -111,6 +112,10 @@ export function NoticeList() {
         </div>
         <UploadButton />
       </header>
+
+      {/* Whether the scheduled fetchers are alive. Silent-failure insurance:
+          a broken scraper and a quiet week look identical on this page. */}
+      <SourceStatusBand />
 
       <Input
         value={query}

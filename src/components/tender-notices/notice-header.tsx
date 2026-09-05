@@ -30,6 +30,18 @@ export function Header({
   const confirm = useConfirmNotice(notice.id);
   const [editingTitle, setEditingTitle] = useState(false);
 
+  /** Where "Source: EDCL" goes: the site's tender listing.
+   *
+   *  The source's own listing page, not this notice's page on it. A reader
+   *  clicking the source name is asking "where does this come from" — the
+   *  answer is edcl.gov.bd/pages/tenders, the page the fetcher polls, which
+   *  stays valid long after any one notice has scrolled off it. The document
+   *  itself is one click away on the Tender PDF card.
+   *
+   *  `notice.source_url` is the fallback for a notice with no registered
+   *  source behind it — a hand-uploaded one where somebody typed the URL in. */
+  const sourceHref = notice.source?.listing_url ?? notice.source_url ?? null;
+
   const runExtract = () =>
     extract.mutate(undefined, {
       onSuccess: (result) => {
@@ -101,16 +113,16 @@ export function Header({
             </span>
           </div>
           <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {notice.source_url ? (
+            {sourceHref ? (
               <>
                 Source:{" "}
                 <a
-                  href={notice.source_url}
+                  href={sourceHref}
                   target="_blank"
                   rel="noreferrer"
                   className="font-semibold text-primary underline-offset-2 hover:underline"
                 >
-                  {notice.source_name ?? notice.source_url}
+                  {notice.source_name ?? sourceHref}
                 </a>
               </>
             ) : (

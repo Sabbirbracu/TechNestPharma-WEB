@@ -46,6 +46,8 @@ import type {
   SenderRuleInput,
   ThreadFiled,
   NoticeConfirmResult,
+  NoticeFetchReport,
+  NoticeScheduleUpdate,
   NoticeSource,
   NoticeTender,
   NoticeTenderItem,
@@ -1491,6 +1493,50 @@ export function useNoticeSources() {
   return useQuery({
     queryKey: keys.tenderNotices.sources,
     queryFn: () => apiFetch<NoticeSource[]>("/tender-notices/sources"),
+  });
+}
+
+/** Set when — and whether — a source is scraped (Settings → Scraping Scheduler).
+ *
+ *  Saving arms the schedule server-side rather than leaving the slot due, so
+ *  moving the time to something earlier in the day does not fire a scrape the
+ *  moment the button is pressed. Use `useFetchNoticeSource` to run one now. */
+export function useUpdateNoticeSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sourceId,
+      ...body
+    }: NoticeScheduleUpdate & { sourceId: number }) =>
+      apiFetch<NoticeSource>(`/tender-notices/sources/${sourceId}/schedule`, {
+        method: "PATCH",
+        json: body,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.sources });
+    },
+  });
+}
+
+/** Re-run one source's fetcher now.
+ *
+ *  Fetching is scheduled, not driven from this screen — the point of the
+ *  feature is that nobody has to remember to look. This is the retry behind
+ *  the "fetch failed" notification: being told something broke is only useful
+ *  next to a way to try it again once it is fixed. */
+export function useFetchNoticeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceId: number) =>
+      apiFetch<NoticeFetchReport>(`/tender-notices/sources/${sourceId}/fetch`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
+      // A fetch that imported anything also raised a notification, and the
+      // tray is stale until this lands.
+      queryClient.invalidateQueries({ queryKey: keys.notifications.all });
+    },
   });
 }
 

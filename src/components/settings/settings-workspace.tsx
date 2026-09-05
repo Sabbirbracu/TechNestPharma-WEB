@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Bell,
+  CalendarClock,
   Database,
   Eye,
   EyeOff,
@@ -15,6 +16,7 @@ import {
   Shield,
   SlidersHorizontal,
   User,
+  Volume2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,19 @@ import { TwoFactorCard } from "./two-factor-card";
 import { SessionsCard } from "./sessions-card";
 import { AvatarCard } from "./avatar-card";
 import { MailboxConnectionCard } from "@/components/mailbox/mailbox-connection-card";
+import { ScrapeSchedulerCard } from "./scrape-scheduler-card";
+import {
+  getNotificationSound,
+  getNotificationSoundServerSnapshot,
+  getSoundServerSnapshot,
+  isSoundEnabled,
+  NOTIFICATION_SOUNDS,
+  playNotificationSound,
+  setNotificationSound,
+  setSoundEnabled,
+  subscribeToSound,
+  unlockSound,
+} from "@/lib/notification-sound";
 
 /** Sentence-case the role enum for display, same map the sidebar uses. */
 const ROLE_LABEL: Record<string, string> = {
@@ -46,6 +61,7 @@ type TabKey =
   | "security"
   | "notifications"
   | "email"
+  | "scraping"
   | "preferences"
   | "system";
 
@@ -65,6 +81,12 @@ const TABS: {
     icon: Mail,
   },
   {
+    key: "scraping",
+    label: "Scraping Scheduler",
+    description: "When tender sites are checked",
+    icon: CalendarClock,
+  },
+  {
     key: "preferences",
     label: "Preferences",
     description: "Application settings",
@@ -75,10 +97,10 @@ const TABS: {
 
 /**
  * One tab visible at a time, left rail to switch (SRS FR-AUTH extension,
- * 2026-08-23). Only Account, Security, and Notifications back real settings;
- * Preferences and System are kept as honest placeholders rather than fake
- * controls, since nothing in the app reads a theme, locale, or export
- * preference yet.
+ * 2026-08-23). Account, Security, Notifications, Email Config and Scraping
+ * Scheduler back real settings; Preferences and System are kept as honest
+ * placeholders rather than fake controls, since nothing in the app reads a
+ * theme, locale, or export preference yet.
  */
 export function SettingsWorkspace() {
   const { user } = useAuth();
@@ -149,6 +171,7 @@ export function SettingsWorkspace() {
             />
           )}
           {tab === "email" && <MailboxConnectionCard />}
+          {tab === "scraping" && <ScrapeSchedulerCard />}
           {tab === "preferences" && (
             <EmptyState
               icon={SlidersHorizontal}
@@ -505,7 +528,7 @@ function NotificationsCard({
     <SettingsCard
       icon={Bell}
       title="Notifications"
-      description="Choose what you'd want to be emailed about"
+      description="Choose email alerts and your in-app notification sound"
     >
       <label className="flex items-center gap-3 text-sm font-medium text-foreground">
         <Checkbox checked={followUp} onChange={() => setFollowUp((v) => !v)} />
@@ -519,6 +542,7 @@ function NotificationsCard({
         These preferences are saved, but automated email sending isn&rsquo;t built yet — no
         emails go out from either toggle right now.
       </p>
+      <NotificationSoundSettings />
       <div className="flex justify-end border-t border-border/60 pt-4">
         <Button type="button" size="sm" onClick={save} disabled={!dirty || updatePrefs.isPending}>
           {updatePrefs.isPending && <Loader2 className="animate-spin" />}
@@ -526,5 +550,85 @@ function NotificationsCard({
         </Button>
       </div>
     </SettingsCard>
+  );
+}
+
+function NotificationSoundSettings() {
+  const soundOn = useSyncExternalStore(
+    subscribeToSound,
+    isSoundEnabled,
+    getSoundServerSnapshot,
+  );
+  const selectedSound = useSyncExternalStore(
+    subscribeToSound,
+    getNotificationSound,
+    getNotificationSoundServerSnapshot,
+  );
+
+  function preview(sound: typeof selectedSound) {
+    // The click that previews a chime is a valid browser audio gesture. This
+    // also makes Preview work before the person has clicked elsewhere in-app.
+    unlockSound();
+    playNotificationSound(sound);
+  }
+
+  return (
+    <fieldset className="space-y-3 rounded-xl border border-border/60 bg-secondary/20 p-3.5">
+      <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+        In-app sound
+      </legend>
+      <label className="flex items-center gap-3 text-sm font-medium text-foreground">
+        <Checkbox checked={soundOn} onChange={() => setSoundEnabled(!soundOn)} />
+        Play a sound when a new notification arrives
+      </label>
+      <p className="text-xs font-medium leading-relaxed text-muted-foreground">
+        Choose a discreet workplace chime. This setting is saved in this browser and
+        does not change your email preferences.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {NOTIFICATION_SOUNDS.map((sound) => {
+          const selected = sound.id === selectedSound;
+          return (
+            <div
+              key={sound.id}
+              className={cn(
+                "flex items-center gap-2 rounded-xl border p-2.5 transition-colors",
+                selected
+                  ? "border-primary/40 bg-primary/[0.06]"
+                  : "border-border/60 bg-card",
+              )}
+            >
+              <button
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setNotificationSound(sound.id)}
+                className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <span className="block text-xs font-bold text-foreground">{sound.name}</span>
+                <span className="mt-0.5 block text-[11px] font-medium leading-snug text-muted-foreground">
+                  {sound.description}
+                </span>
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => preview(sound.id)}
+                disabled={!soundOn}
+                title={`Preview ${sound.name}`}
+                aria-label={`Preview ${sound.name} notification sound`}
+              >
+                <Volume2 />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      {!soundOn && (
+        <p className="text-[11px] font-medium text-muted-foreground">
+          Turn sound on to preview your selection.
+        </p>
+      )}
+    </fieldset>
   );
 }

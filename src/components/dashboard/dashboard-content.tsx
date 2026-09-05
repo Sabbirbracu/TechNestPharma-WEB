@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertCircle, Calendar } from "lucide-react";
 import { useDashboard, useDashboardTimeseries } from "@/lib/queries";
 import { useAuth } from "@/lib/auth";
-import { BusinessOverview } from "@/components/dashboard/business-overview";
+import { GrowthChart } from "@/components/dashboard/growth-chart";
 import { DocumentsOverview } from "@/components/dashboard/documents-overview";
 import { KpiRow } from "@/components/dashboard/kpi-row";
 import {
@@ -99,7 +99,7 @@ export function DashboardContent() {
 
       <div className="grid gap-4 xl:grid-cols-12">
         <div className="xl:col-span-6">
-          <BusinessOverview
+          <GrowthChart
             series={series}
             windowDays={windowDays}
             onWindowChange={setWindowDays}

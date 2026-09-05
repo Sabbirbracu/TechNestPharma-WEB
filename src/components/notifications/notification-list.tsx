@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   BellOff,
   CheckCheck,
   Clock,
@@ -10,6 +11,7 @@ import {
   Loader2,
   Mail,
   RefreshCw,
+  ScanLine,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -39,6 +41,13 @@ const KIND_STYLE: Record<
   inbox_mail: { icon: Inbox, tint: "bg-tile-teal-bg text-tile-teal" },
   follow_up_due: { icon: Clock, tint: "bg-tile-amber-bg text-tile-amber" },
   status_changed: { icon: RefreshCw, tint: "bg-tile-blue-bg text-tile-blue" },
+  notice_fetched: { icon: ScanLine, tint: "bg-tile-purple-bg text-tile-purple" },
+  // The one row in this tray that reports the system failing rather than the
+  // world changing, so it is the one that gets the destructive tint.
+  fetch_failed: {
+    icon: AlertTriangle,
+    tint: "bg-destructive/10 text-destructive",
+  },
 };
 
 /**
@@ -88,6 +97,19 @@ export function NotificationList({ onNavigate }: { onNavigate: () => void }) {
     // one message. The mail is at the top of whichever tab it was sorted into.
     if (notification.entity_type === "inbox") {
       router.push("/inbox");
+      onNavigate();
+      return;
+    }
+    if (notification.entity_type === "tender_notice" && notification.entity_id) {
+      router.push(`/tender-notices/${notification.entity_id}`);
+      onNavigate();
+      return;
+    }
+    // A failed fetch carries the source, not a notice — there is nothing to
+    // open — so it lands on the inbox, where the status band says what broke
+    // and offers the retry.
+    if (notification.entity_type === "notice_source") {
+      router.push("/tender-notices");
       onNavigate();
     }
   };

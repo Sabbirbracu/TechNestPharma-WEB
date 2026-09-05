@@ -1098,6 +1098,30 @@ export type NoticeSource = {
   is_enabled: boolean;
   last_fetched_at: string | null;
   last_error: string | null;
+  /** Wall-clock times of day this source is scraped at, "HH:MM" in 24-hour
+   *  form, read in `schedule_timezone`. Always sorted — the server stores them
+   *  that way so the same schedule always produces the same run. */
+  schedule_times: string[];
+  schedule_timezone: string;
+  /** The page this source's fetcher actually polls —
+   *  "https://edcl.gov.bd/pages/tenders". Null for an upload-only source,
+   *  which has no listing page. */
+  listing_url: string | null;
+  /** `schedule_times.length`, sent rather than derived so the "how many times
+   *  a day" selector and the server agree on one rule. */
+  runs_per_day: number;
+  /** Computed per request, never stored. Null when the source is disabled or
+   *  upload-only — nothing is going to fetch it. */
+  next_run_at: string | null;
+};
+
+/** The whole schedule, not a delta: the form shows every time at once, so
+ *  sending the complete set stops two editors merging into a schedule neither
+ *  of them chose. */
+export type NoticeScheduleUpdate = {
+  is_enabled?: boolean;
+  schedule_times?: string[];
+  schedule_timezone?: string;
 };
 
 export type MatchCandidate = {
@@ -1209,6 +1233,45 @@ export type TenderNoticeListItem = {
   tender_count: number;
   item_count: number;
   mapped_count: number;
+  /** The site's own `দরপত্র নং` cell(s). A list because edcl.gov.bd publishes a
+   *  row per *tender*, so one notice routinely carries several; empty for a
+   *  notice uploaded by hand, which has no listing behind it. */
+  source_refs: string[];
+};
+
+/** One row as the source site published it.
+ *
+ *  Several of these can point at one notice: edcl.gov.bd lists a row per
+ *  *tender*, not per document, so a notice holding six tenders appears six
+ *  times on the site with six different file URLs and one identical PDF. */
+export type NoticeListingRow = {
+  id: number;
+  /** The site's `দরপত্র নং` cell — "10", "09", "KELP-02". */
+  source_ref: string | null;
+  title: string;
+  notice_type: string | null;
+  published_on: string | null;
+  document_url: string;
+  detail_url: string | null;
+  /** "downloaded" | "known_url" | "known_md5" | "known_sha256" */
+  resolution: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+/** The site's tender numbers against the ones OCR read out of the scan.
+ *
+ *  `checked` false means there was nothing to compare — a hand-uploaded
+ *  notice, or one not yet extracted — and the screen must say so rather than
+ *  show a tick it has not earned. */
+export type NoticeCrossCheck = {
+  checked: boolean;
+  ok: boolean;
+  site_refs: string[];
+  document_refs: string[];
+  missing_from_document: string[];
+  unexpected_in_document: string[];
+  summary: string | null;
 };
 
 export type TenderNoticeDetail = TenderNoticeListItem & {
@@ -1217,6 +1280,28 @@ export type TenderNoticeDetail = TenderNoticeListItem & {
   notes: string | null;
   tenders: NoticeTender[];
   source: NoticeSource | null;
+  /** "International" / "National", off the listing rather than the document. */
+  notice_type: string | null;
+  listing_rows: NoticeListingRow[];
+  cross_check: NoticeCrossCheck | null;
+};
+
+/** What one fetch pass did. The skip counts are part of the result, not a log
+ *  line: a healthy no-op and a quietly broken scraper both report zero new
+ *  notices, and only `rows_seen` against the skips tells them apart. */
+export type NoticeFetchReport = {
+  source_name: string;
+  rows_seen: number;
+  rows_new: number;
+  downloaded: number;
+  skipped_known_url: number;
+  skipped_known_md5: number;
+  skipped_known_sha256: number;
+  notices_created: number;
+  notice_ids: number[];
+  extracted: number;
+  cross_check_warnings: string[];
+  errors: string[];
 };
 
 export type TenderNoticeParams = ListParams & {
@@ -1566,7 +1651,14 @@ export type NotificationKind =
    *  enquiry reply keeps its own icon — and so this one can be muted alone. */
   | "inbox_mail"
   | "follow_up_due"
-  | "status_changed";
+  | "status_changed"
+  /** New tender notices arrived from a source site's scheduled fetch. */
+  | "notice_fetched"
+  /** A scheduled fetch could not complete. Its own kind because it reports
+   *  the system failing rather than the world changing: a scraper that breaks
+   *  is invisible — the symptom is an absence of notices, which for weeks at
+   *  a time is also what success looks like. */
+  | "fetch_failed";
 
 export type AppNotification = {
   id: number;

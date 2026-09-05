@@ -1,45 +1,67 @@
 import {
   AlertTriangle,
-  Building2,
   CalendarClock,
   Check,
   CheckCheck,
   FileStack,
-  Link2,
-  ListChecks,
+  FileText,
+  Hash,
   Clock,
   ScanLine,
-  Wallet,
+  Tags,
 } from "lucide-react";
 import { closingLabel } from "@/components/tenders/tender-status";
 import type { ClosingLevel } from "@/components/tenders/tender-status";
 import { cn } from "@/lib/utils";
-import { formatDate, formatMoney } from "./notice-taxonomy";
+import { formatDate, formatFileSize } from "./notice-taxonomy";
 import type { Readiness } from "./notice-readiness";
 import type { TenderNoticeDetail } from "@/types/api";
 
 /**
- * The notice's real figures, and one line saying whether it can go live.
+ * What the source site said this notice is, and one line on whether it can go
+ * live.
  *
- * Each figure is its own card carrying one hue from the taxonomy palette, so
- * the six read as six separate things at a glance rather than as one block of
- * numbers to be parsed left to right.
+ * The band used to carry six *derived* figures — requirement lines, mapping
+ * progress, schedule cost, shortlisted suppliers. Every one of those is
+ * already stated, in more detail, by the panel directly underneath: the tender
+ * table shows the lines and their mapping state per tender, and the cost sits
+ * on the tender row it belongs to. Restating them up here as totals answered a
+ * question nobody was asking and pushed the one thing you cannot get anywhere
+ * else off the top of the screen.
+ *
+ * So the band was cut to what identifies the notice (2026-09-05), and every
+ * card except the first now comes from the *site listing* rather than from
+ * OCR:
+ *
+ *     Tenders      how many tenders are inside this one document
+ *     দরপত্র নং      the site's own tender number(s), verbatim
+ *     Tender type  the `দরপত্রের ধরণ` column — International / National
+ *     Closing      the nearest deadline still ahead
+ *     Tender PDF   opens the document itself
+ *
+ * That provenance is the point of the middle two. The reference numbers inside
+ * the scan have to be read by OCR off a page with no text layer, which is the
+ * weakest link in this pipeline; the same numbers on the listing are real text.
+ * Showing the listing's version means the header states a fact rather than a
+ * guess — and the cross-check callout above already reports it when the two
+ * disagree.
  */
 export function SummaryBand({
   notice,
   readiness,
+  onOpenDocument,
 }: {
   notice: TenderNoticeDetail;
   readiness: Readiness;
+  /** Switches the panel below to the document tab. The PDF card is a button,
+   *  not a link: the viewer is already on this page, and opening a new tab
+   *  would lose the tender table beside it. */
+  onOpenDocument?: () => void;
 }) {
   const tenders = notice.tenders;
   const liveCount = tenders.filter(
     (t) => t.notice_confirmed_at !== null,
   ).length;
-  const progress =
-    notice.item_count > 0
-      ? Math.round((notice.mapped_count / notice.item_count) * 100)
-      : 0;
 
   // The nearest deadline the buyer is actually working against: the earliest
   // date still ahead, falling back to the last one that passed when they all
@@ -54,79 +76,58 @@ export function SummaryBand({
     closingDates[closingDates.length - 1] ??
     null;
   const countdown = closingLabel(nearestClosing);
-
-  // Schedule costs only add up within one currency. Mixed currencies are a
-  // real possibility on an international notice, so say "mixed" rather than
-  // print a total that means nothing.
-  const currencies = new Set(
-    tenders
-      .map((tender) => tender.schedule_currency)
-      .filter((currency): currency is string => Boolean(currency)),
-  );
-  const costTotal = tenders.reduce(
-    (sum, tender) => sum + (Number(tender.schedule_cost) || 0),
-    0,
-  );
-  const usdTotal = tenders.reduce(
-    (sum, tender) => sum + (Number(tender.schedule_cost_usd) || 0),
-    0,
-  );
-  // What a confirm would shortlist right now — already deduped per tender by
-  // the API, so summing across tenders is the true total.
-  const supplierTotal = tenders.reduce(
-    (sum, tender) => sum + tender.selected_supplier_count,
-    0,
-  );
-
   const alarm = CLOSING_ALARMS[countdown?.level ?? "calm"];
+
+  const refs = tenderNumbers(notice);
+  const type = tenderType(notice);
+  // `original_filename` is set whenever a document was stored, and is the
+  // only file field the list schema carries — a notice created by hand has
+  // none, and its PDF card must say so rather than open an empty viewer.
+  const hasDocument = Boolean(notice.original_filename);
 
   return (
     <section className="space-y-3">
-      {/* Six tiles, not five: the grid is 2, 3 and 6 columns wide at its three
-          breakpoints, and six divides into all of them — an odd count would
-          leave a hole in the last row at every width. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      {/* Five cards, and the last one spans the gap at the two-column width so
+          the row never ends on a hole. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Tile
           label="Tenders"
           value={String(notice.tender_count)}
           hint={
-            liveCount > 0
-              ? `${liveCount} live · ${notice.tender_count - liveCount} draft`
-              : "none confirmed yet"
+            notice.tender_count === 0
+              ? "nothing extracted yet"
+              : liveCount > 0
+                ? `${liveCount} live · ${notice.tender_count - liveCount} draft`
+                : "in this one notice"
           }
           icon={FileStack}
           hue="blue"
         />
+
         <Tile
-          label="Requirement lines"
-          value={String(notice.item_count)}
-          hint={
-            notice.tender_count > 0
-              ? `across ${notice.tender_count} tender${notice.tender_count === 1 ? "" : "s"}`
-              : "nothing extracted"
-          }
-          icon={ListChecks}
+          label="দরপত্র নং / Tender No"
+          value={refs.value}
+          hint={refs.hint}
+          // One EDCL notice routinely carries six tender numbers, and this is
+          // the card they belong on — so it wraps rather than truncating.
+          // Cutting "10, 11, 12, 13, 14, 15" off at "10, 11, 12, 1…" would
+          // fail on precisely the notices the card exists for.
+          wrap
+          title={refs.title}
+          icon={Hash}
           hue="purple"
         />
+
         <Tile
-          label="Mapped"
-          value={`${notice.mapped_count}/${notice.item_count}`}
-          hint={`${progress}% settled`}
-          icon={Link2}
-          hue="green"
-        >
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                progress === 100 ? "bg-success" : "bg-tile-green",
-              )}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </Tile>
+          label="Tender Type"
+          value={type.value}
+          hint={type.hint}
+          icon={Tags}
+          hue="teal"
+        />
+
         <Tile
-          label="Nearest closing"
+          label="Closing Date"
           value={formatDate(nearestClosing)}
           hint={countdown?.text ?? "no closing date read"}
           icon={CalendarClock}
@@ -137,36 +138,24 @@ export function SummaryBand({
           ring={alarm.ring}
           alert={countdown ? { ...alarm, text: countdown.text } : undefined}
         />
+
         <Tile
-          label="Schedule cost"
-          value={
-            currencies.size > 1
-              ? "Mixed"
-              : formatMoney(
-                  costTotal ? String(costTotal) : null,
-                  [...currencies][0] ?? null,
-                )
-          }
+          className="sm:col-span-2 xl:col-span-1"
+          label="Tender PDF"
+          value={hasDocument ? "View PDF" : "No file"}
           hint={
-            currencies.size > 1
-              ? [...currencies].join(" · ")
-              : usdTotal
-                ? `≈ USD ${usdTotal.toFixed(2)}`
-                : "for all schedules"
+            hasDocument
+              ? [
+                  formatFileSize(notice.file_size_bytes),
+                  notice.page_count ? `${notice.page_count} page(s)` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "open the scan"
+              : "this notice was entered by hand"
           }
-          icon={Wallet}
-          hue="teal"
-        />
-        <Tile
-          label="Suppliers"
-          value={String(supplierTotal)}
-          hint={
-            supplierTotal > 0
-              ? "would be shortlisted"
-              : "none ticked on any line"
-          }
-          icon={Building2}
+          icon={FileText}
           hue="rose"
+          onClick={hasDocument ? onOpenDocument : undefined}
         />
       </div>
 
@@ -181,9 +170,77 @@ export function SummaryBand({
   );
 }
 
+/**
+ * The `দরপত্র নং` cell(s), preferring the site listing over the document.
+ *
+ * One EDCL notice is commonly six listing rows — one per tender inside the
+ * scan — so this is usually a list, not a single number. The listing text is
+ * exact; the tender's own `reference_no` came out of OCR and is the fallback
+ * for a notice that was uploaded by hand and has no listing behind it.
+ */
+function tenderNumbers(notice: TenderNoticeDetail): {
+  value: string;
+  hint: string;
+  title?: string;
+} {
+  const fromListing = unique(
+    notice.listing_rows.map((row) => row.source_ref?.trim()),
+  );
+  if (fromListing.length > 0) {
+    return {
+      value: fromListing.join(", "),
+      hint:
+        fromListing.length === 1
+          ? "as published on the site"
+          : `${fromListing.length} on the site listing`,
+      title: fromListing.join(", "),
+    };
+  }
+
+  const fromTenders = unique(
+    notice.tenders.map((tender) => tender.reference_no?.trim()),
+  );
+  if (fromTenders.length > 0) {
+    return {
+      value: fromTenders.join(", "),
+      hint:
+        fromTenders.length === 1
+          ? "read from the document"
+          : `${fromTenders.length} read from the document`,
+      title: fromTenders.join(", "),
+    };
+  }
+
+  return { value: "—", hint: "no tender number found" };
+}
+
+/**
+ * The `দরপত্রের ধরণ` column — International / National.
+ *
+ * `notice.notice_type` is copied from the listing at fetch time and is the
+ * authority; the listing rows are the same value and are checked only for a
+ * notice recorded before that column existed.
+ */
+function tenderType(notice: TenderNoticeDetail): { value: string; hint: string } {
+  const fromNotice = notice.notice_type?.trim();
+  if (fromNotice) return { value: fromNotice, hint: "from the site listing" };
+
+  const fromRows = unique(notice.listing_rows.map((row) => row.notice_type?.trim()));
+  if (fromRows.length > 0) {
+    return { value: fromRows.join(" · "), hint: "from the site listing" };
+  }
+
+  return { value: "—", hint: "not stated on the listing" };
+}
+
+/** Non-empty values, in the order they first appear. */
+function unique(values: (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
 /** One hue per tile, from the taxonomy palette the catalogue tiles already
- *  use: these figures are six different things, not six degrees of one
- *  status, so the colour is a label rather than a judgement. */
+ *  use: these are five different things, not five degrees of one status, so
+ *  the colour is a label rather than a judgement. */
 const HUES = {
   blue: {
     chip: "bg-tile-blue-bg text-tile-blue ring-tile-blue/15",
@@ -264,6 +321,10 @@ function Tile({
   hue,
   ring,
   alert,
+  title,
+  wrap,
+  onClick,
+  className,
   children,
 }: {
   label: string;
@@ -280,18 +341,22 @@ function Tile({
     icon?: typeof FileStack;
     pulse?: boolean;
   };
+  /** Tooltip on the value, for a card whose value is too long to show whole. */
+  title?: string;
+  /** Let a long value wrap onto a second line, at a smaller size, instead of
+   *  being cut off. For a value that is a *list* rather than a single figure. */
+  wrap?: boolean;
+  /** Makes the card a button. */
+  onClick?: () => void;
+  className?: string;
   children?: React.ReactNode;
 }) {
   const { chip, accent } = HUES[hue];
   const AlertIcon = alert?.icon;
+  const interactive = Boolean(onClick);
 
-  return (
-    <div
-      className={cn(
-        "group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
-        ring,
-      )}
-    >
+  const body = (
+    <>
       {/* The one place per card that carries the hue at full strength — the
           chip and any bar below it are tints of the same colour. */}
       <span
@@ -316,7 +381,19 @@ function Tile({
         </p>
       </div>
 
-      <p className="mt-2.5 truncate text-xl font-bold leading-tight tracking-tight tabular-nums text-foreground">
+      <p
+        title={title ?? value}
+        className={cn(
+          "mt-2.5 font-bold leading-tight tracking-tight tabular-nums text-foreground",
+          // Two lines at a smaller size once the value stops being a figure
+          // and becomes a list. Past two lines it does truncate — the tooltip
+          // and the cross-check callout both carry the full set.
+          wrap && value.length > 10
+            ? "line-clamp-2 break-words text-base"
+            : "truncate text-xl",
+          interactive && "group-hover:text-primary",
+        )}
+      >
         {value}
       </p>
       {children}
@@ -343,8 +420,31 @@ function Tile({
           {hint}
         </p>
       )}
-    </div>
+    </>
   );
+
+  const shell = cn(
+    "group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card p-4 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
+    ring,
+    className,
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          shell,
+          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        )}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return <div className={shell}>{body}</div>;
 }
 
 function ReadinessStrip({ readiness }: { readiness: Readiness }) {
