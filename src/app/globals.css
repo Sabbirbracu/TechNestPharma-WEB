@@ -56,6 +56,11 @@
   --color-tile-rose: var(--tile-rose);
   --color-tile-rose-bg: var(--tile-rose-bg);
 
+  /* Categorical chart series — see the :root block. */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+
   --font-sans: var(--font-montserrat);
   --font-mono: var(--font-geist-mono);
 
@@ -141,6 +146,19 @@
   --tile-rose: oklch(0.565 0.185 12);
   --tile-rose-bg: oklch(0.955 0.03 15);
 
+  /* Categorical chart series, in fixed slot order — never cycled, never
+     re-assigned when a series is hidden. Deliberately NOT the --tile-* hues:
+     those are badge colours and fail colourblind separation when marks touch
+     or cross (tile-purple and tile-blue are the same colour to a deuteranope).
+     These three are the first three slots of the data-viz reference palette,
+     validated all-pairs against the card surface in both themes — light
+     #2a78d6 / #eb6834 / #1baf7a, worst CVD deltaE 9.2, worst normal-vision 24.0.
+     chart-3 sits at 2.8:1 on white, so every chart using these must label each
+     series in a legend rather than resting identity on colour alone. */
+  --chart-1: oklch(0.5753 0.1626 255.5);
+  --chart-2: oklch(0.6708 0.175 40.6);
+  --chart-3: oklch(0.669 0.1408 162.1);
+
   /* Sidebar: Deep navy blue background (matching logo dark variant) for premium contrast */
   --sidebar: oklch(0.22 0.045 255); /* Deep navy blue #001f3f / #0a1929 */
   --sidebar-foreground: oklch(0.95 0.005 250); /* Light text for contrast */
@@ -200,6 +218,12 @@
   --tile-teal-bg: oklch(0.76 0.12 200 / 0.15);
   --tile-rose: oklch(0.74 0.16 15);
   --tile-rose-bg: oklch(0.74 0.16 15 / 0.15);
+
+  /* The same three hues re-stepped for the dark card (#3987e5 / #d95926 /
+     #199e70), validated as their own set — not an automatic lightening. */
+  --chart-1: oklch(0.6221 0.1612 255.1);
+  --chart-2: oklch(0.6221 0.1726 40.1);
+  --chart-3: oklch(0.6212 0.1283 163.1);
 
   --sidebar: oklch(0.185 0.019 255);
   --sidebar-foreground: oklch(0.96 0.005 250);

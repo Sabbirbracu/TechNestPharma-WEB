@@ -98,7 +98,7 @@ export function DashboardContent() {
       />
 
       <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-6">
+        <div className="xl:col-span-5">
           <GrowthChart
             series={series}
             windowDays={windowDays}
@@ -107,7 +107,7 @@ export function DashboardContent() {
             isFetching={timeseries.isFetching}
           />
         </div>
-        <div className="md:col-span-1 xl:col-span-3">
+        <div className="md:col-span-1 xl:col-span-4">
           <TopCategories />
         </div>
         <div className="md:col-span-1 xl:col-span-3">
