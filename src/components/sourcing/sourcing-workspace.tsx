@@ -81,9 +81,16 @@ const POLL_MS = 120_000;
 const GROUPING_FETCH_SIZE = 100;
 
 export function SourcingWorkspace() {
-  const [filters, setFilters] = useState<SourcingFilterValues>(
-    EMPTY_SOURCING_FILTERS,
-  );
+  const searchParams = useSearchParams();
+  // /sourcing?company=<id> — where "Start Sourcing" on a supplier's profile
+  // lands. Read once as the initial filter rather than synced, so clearing the
+  // supplier chip is not undone on the next render.
+  const [filters, setFilters] = useState<SourcingFilterValues>(() => {
+    const companyId = Number(searchParams.get("company")) || null;
+    return companyId
+      ? { ...EMPTY_SOURCING_FILTERS, companyId }
+      : EMPTY_SOURCING_FILTERS;
+  });
   const [sort, setSort] = useState("updated_at:desc");
   const [view, setView] = useState<"list" | "grid">("list");
   const [groupBy, setGroupBy] = useState<GroupBy>("product");
@@ -97,7 +104,7 @@ export function SourcingWorkspace() {
   // notification is about is usually not on whatever page happens to be
   // loaded — and `SourcingRequestDetail` is a superset of the list row, so the
   // panel takes it as-is.
-  const deepLinkId = Number(useSearchParams().get("open")) || null;
+  const deepLinkId = Number(searchParams.get("open")) || null;
   const { data: deepLinked } = useSourcingRequest(deepLinkId);
   // Which deep link has already been dismissed. Derived rather than synced
   // into `selected` by an effect: the query string outlives the panel, so

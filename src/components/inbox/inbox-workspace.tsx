@@ -10,24 +10,35 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Eye,
   Inbox as InboxIcon,
   Loader2,
   Mail,
   MailQuestion,
+  FolderPlus,
+  FileText,
   Paperclip,
   PenSquare,
   RefreshCw,
   Reply,
+  SendHorizontal,
   ShieldQuestion,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
+import { AddToDocumentsDialog } from "@/components/documents/add-to-documents-dialog";
+import {
+  FilePreview,
+  isPreviewable,
+} from "@/components/documents/file-preview";
 import { ComposeDialog } from "@/components/inbox/compose-dialog";
+import { SentMail } from "@/components/inbox/sent-mail";
 import { baseSubject, splitQuotedReply } from "@/lib/mail-quote";
 import {
   downloadInboxAttachment,
+  inboxAttachmentPreviewUrl,
   isMailboxReauthError,
   useFileInboxThread,
   useInbox,
@@ -36,7 +47,14 @@ import {
   useSetSenderRule,
 } from "@/lib/queries";
 import { byNewest, cn } from "@/lib/utils";
+import { keys } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import type { InboxBucket, InboxMessage } from "@/types/api";
+
+/** The tab bar's own vocabulary. Three of the four are Gmail buckets; "sent"
+ *  is a different source entirely (the ERP's own outbound rows), which is why
+ *  it is a tab key rather than a fourth `InboxBucket`. */
+type TabKey = InboxBucket | "sent";
 
 /**
  * The inbox (2026-08-31, redesigned 2026-09-02).
@@ -90,32 +108,50 @@ import type { InboxBucket, InboxMessage } from "@/types/api";
  */
 
 const TABS: {
-  bucket: InboxBucket;
+  key: TabKey;
   label: string;
   hint: string;
   icon: typeof InboxIcon;
 }[] = [
   {
-    bucket: "business",
+    key: "business",
     label: "Business",
     hint: "Senders recognised from your companies and contacts, plus every conversation this system started.",
     icon: InboxIcon,
   },
   {
-    bucket: "unsorted",
+    key: "unsorted",
     label: "Unsorted",
     hint: "Real people writing from an address you have not dealt with before. Sort them once and they stay sorted.",
     icon: MailQuestion,
   },
   {
-    bucket: "filtered",
+    key: "filtered",
     label: "Filtered",
     hint: "Newsletters, promotions and automated mail. Kept visible so nothing is lost — mark anything here as business if it was misjudged.",
     icon: Archive,
   },
+  {
+    key: "sent",
+    label: "Sent",
+    hint: "Every email this system sent, read from its own records rather than Gmail — so it works while the connection is expired, and each message names the supplier and enquiry it belongs to. Mail you send from Gmail directly is not here.",
+    icon: SendHorizontal,
+  },
 ];
 
+/** "Re: " once, never twice — `baseSubject` strips the chain the provider
+ *  accumulated, and a subject that already carries one is left alone. */
+function replySubject(subject: string | null): string {
+  const base = baseSubject(subject) || "(no subject)";
+  return base.toLowerCase().startsWith("re:") ? base : `Re: ${base}`;
+}
+
 export function InboxWorkspace() {
+  const [tab, setTab] = useState<TabKey>("business");
+  // The Gmail queries still think in buckets. On the Sent tab there is no
+  // bucket to read, so the last one is kept as the query key and the query
+  // itself is switched off — going back to it then serves from cache rather
+  // than re-spending Gmail calls on mail that was already on screen.
   const [bucket, setBucket] = useState<InboxBucket>("business");
   const [pageToken, setPageToken] = useState<string | null>(null);
   const [selected, setSelected] = useState<InboxMessage | null>(null);
@@ -128,11 +164,16 @@ export function InboxWorkspace() {
   const { data: settings } = useMailboxSettings();
   const connected = settings?.account?.status === "connected";
 
-  const page = useInbox(bucket, pageToken, { enabled: Boolean(connected) });
+  const queryClient = useQueryClient();
+  const isSent = tab === "sent";
+  const page = useInbox(bucket, pageToken, {
+    enabled: Boolean(connected) && !isSent,
+  });
   const messages = useMemo(() => page.data?.messages ?? [], [page.data]);
 
-  const switchTab = useCallback((next: InboxBucket) => {
-    setBucket(next);
+  const switchTab = useCallback((next: TabKey) => {
+    setTab(next);
+    if (next !== "sent") setBucket(next);
     // Gmail's page tokens are per-query, so a token from the focused query is
     // meaningless against the unfiltered one the Filtered tab uses. Resetting
     // is not a nicety; carrying it over would return the wrong page.
@@ -141,12 +182,9 @@ export function InboxWorkspace() {
   }, []);
 
   const openReply = useCallback((message: InboxMessage) => {
-    const subject = baseSubject(message.subject) || "(no subject)";
     setCompose({
       to: message.from_address ?? "",
-      subject: subject.toLowerCase().startsWith("re:")
-        ? subject
-        : `Re: ${subject}`,
+      subject: replySubject(message.subject),
       threadId: message.thread_id,
     });
   }, []);
@@ -156,7 +194,7 @@ export function InboxWorkspace() {
   // next message without reaching for the mouse.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (compose) return;
+      if (compose || isSent) return;
       const target = event.target as HTMLElement | null;
       // Never steal a keystroke from something being typed into.
       if (
@@ -205,7 +243,7 @@ export function InboxWorkspace() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [compose, messages, selected, openReply]);
+  }, [compose, isSent, messages, selected, openReply]);
 
   if (settings && !settings.account) {
     return (
@@ -226,7 +264,7 @@ export function InboxWorkspace() {
     );
   }
 
-  const activeTab = TABS.find((tab) => tab.bucket === bucket);
+  const activeTab = TABS.find((entry) => entry.key === tab);
 
   // The table body loads as one block: nothing partial, nothing stale, a
   // spinner over the whole area until every row is ready.
@@ -275,18 +313,24 @@ export function InboxWorkspace() {
             aria-label="Inbox"
             className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
           >
-            {TABS.map((tab) => {
-              const active = tab.bucket === bucket;
-              const count = page.data?.counts?.[tab.bucket];
-              const Icon = tab.icon;
+            {TABS.map((entry) => {
+              const active = entry.key === tab;
+              // Only the Gmail buckets have a count, and it describes the
+              // window that was fetched. Sent paginates a real total, shown in
+              // its own footer rather than claimed up here.
+              const count =
+                entry.key === "sent"
+                  ? undefined
+                  : page.data?.counts?.[entry.key];
+              const Icon = entry.icon;
               return (
                 <button
-                  key={tab.bucket}
+                  key={entry.key}
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  title={tab.hint}
-                  onClick={() => switchTab(tab.bucket)}
+                  title={entry.hint}
+                  onClick={() => switchTab(entry.key)}
                   className={cn(
                     "relative flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
                     active
@@ -295,7 +339,7 @@ export function InboxWorkspace() {
                   )}
                 >
                   <Icon className="size-4" />
-                  {tab.label}
+                  {entry.label}
                   {typeof count === "number" && count > 0 && (
                     <span
                       className={cn(
@@ -320,12 +364,21 @@ export function InboxWorkspace() {
             <Button
               variant="outline"
               size="sm"
-              title="Re-read the mailbox"
-              onClick={() => page.refetch()}
-              disabled={page.isFetching}
+              title={isSent ? "Re-read the sent log" : "Re-read the mailbox"}
+              onClick={() =>
+                isSent
+                  ? queryClient.invalidateQueries({
+                      queryKey: keys.mailbox.sentAll,
+                    })
+                  : page.refetch()
+              }
+              disabled={!isSent && page.isFetching}
             >
               <RefreshCw
-                className={cn("size-3.5", page.isFetching && "animate-spin")}
+                className={cn(
+                  "size-3.5",
+                  !isSent && page.isFetching && "animate-spin",
+                )}
               />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
@@ -348,7 +401,17 @@ export function InboxWorkspace() {
           {activeTab?.hint}
         </p>
 
-        {loadingTable ? (
+        {isSent ? (
+          <SentMail
+            onReply={(message) =>
+              setCompose({
+                to: message.counterparty ?? "",
+                subject: replySubject(message.subject),
+                threadId: message.external_thread_id,
+              })
+            }
+          />
+        ) : loadingTable ? (
           <div
             role="status"
             aria-busy="true"
@@ -808,14 +871,17 @@ function ThreadPanel({
   );
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-col bg-secondary/10">
-      <header className="shrink-0 border-b border-border bg-card px-4 py-3">
+    <div className="flex min-h-0 min-w-0 flex-col bg-secondary/[0.18]">
+      <header className="shrink-0 border-b border-border/70 bg-gradient-to-br from-primary/[0.09] via-card to-card px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-bold tracking-tight text-foreground">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-primary">
+              Conversation
+            </p>
+            <h2 className="mt-1 truncate text-lg font-extrabold tracking-tight text-foreground">
               {subject}
             </h2>
-            <p className="mt-0.5 truncate text-xs font-medium text-muted-foreground">
+            <p className="mt-1 truncate text-xs font-medium text-muted-foreground">
               {message.from_name
                 ? `${message.from_name} · ${message.from_address}`
                 : message.from_address}
@@ -825,14 +891,14 @@ function ThreadPanel({
             type="button"
             onClick={onClose}
             title="Close this conversation (Esc)"
-            className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+            className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-card hover:text-foreground lg:hidden"
           >
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => onReply(message)}>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={() => onReply(message)} className="rounded-xl shadow-sm shadow-primary/20">
             <Reply className="size-3.5" />
             Reply
           </Button>
@@ -842,6 +908,7 @@ function ThreadPanel({
               size="sm"
               disabled={file.isPending}
               title="Keep this conversation in the ERP, on the supplier's timeline"
+              className="rounded-xl bg-card/80"
               onClick={() =>
                 file.mutate({
                   threadId: message.thread_id,
@@ -858,25 +925,25 @@ function ThreadPanel({
             </Button>
           )}
           {message.in_erp && (
-            <Badge variant="success" className="px-2 py-0.5 text-[10px]">
+            <Badge variant="success" className="rounded-full px-2.5 py-1 text-[10px]">
               <CheckCircle2 className="mr-1 size-3" />
               Tracked in the ERP
             </Badge>
           )}
           {message.company_name && (
-            <Badge variant="secondary" className="px-2 py-0.5 text-[10px]">
+            <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[10px]">
               <Building2 className="mr-1 size-3" />
               {message.company_name}
             </Badge>
           )}
-          <span className="ml-auto text-[11px] font-medium text-muted-foreground">
+          <span className="ml-auto rounded-full bg-card/70 px-2.5 py-1 text-[11px] font-bold text-muted-foreground ring-1 ring-inset ring-border/60">
             {messages.length > 0 &&
               `${messages.length} message${messages.length === 1 ? "" : "s"}`}
           </span>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         {thread.isPending && (
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
@@ -895,9 +962,20 @@ function ThreadPanel({
         {/* Newest first, same as the sourcing thread view: what the reader came
             for is the latest message, not a scroll through their own sent mail
             to reach it. */}
-        {messages.map((item) => (
-          <MessageBubble key={item.message_id} item={item} />
-        ))}
+        {messages.length > 0 && (
+          <div className="relative space-y-3 before:absolute before:bottom-6 before:left-[1.15rem] before:top-6 before:w-px before:bg-border/80">
+            {messages.map((item, index) => (
+              <MessageBubble
+                key={item.message_id}
+                item={item}
+                isLatest={index === 0}
+                companyId={thread.data?.company_id ?? null}
+                companyName={thread.data?.company_name ?? null}
+                sourcingRequestId={thread.data?.sourcing_request_id ?? null}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -905,10 +983,32 @@ function ThreadPanel({
 
 function MessageBubble({
   item,
+  isLatest,
+  companyId,
+  companyName,
+  sourcingRequestId,
 }: {
   item: NonNullable<ReturnType<typeof useInboxThread>["data"]>["messages"][number];
+  isLatest: boolean;
+  /** The sender's company, when the inbox matched one. Passed down so "Add to
+   *  Documents" can pre-select it instead of asking for something the thread
+   *  already knows. */
+  companyId: number | null;
+  companyName: string | null;
+  /** The enquiry this thread belongs to, when the ERP started it. Preferred as
+   *  the filing target so a saved attachment lands on the enquiry's Documents
+   *  tab and not only in the library. */
+  sourcingRequestId: number | null;
 }) {
   const [showQuoted, setShowQuoted] = useState(false);
+  const [saving, setSaving] = useState<{
+    partId: string;
+    filename: string;
+  } | null>(null);
+  const [previewing, setPreviewing] = useState<{
+    partId: string;
+    filename: string;
+  } | null>(null);
   const { reply, quoted } = splitQuotedReply(item.body);
   const files = item.attachments.filter((a) => !a.is_inline);
   const outbound = item.direction === "outbound";
@@ -917,26 +1017,42 @@ function MessageBubble({
   return (
     <article
       className={cn(
-        "rounded-xl border bg-card p-3.5 shadow-xs",
-        outbound ? "border-primary/25 bg-primary/[0.04]" : "border-border",
+        "relative ml-3 rounded-2xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md",
+        outbound
+          ? "border-primary/25 bg-primary/[0.045]"
+          : "border-border/80",
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute -left-[1.2rem] top-5 flex size-2.5 rounded-full ring-4 ring-secondary/[0.18]",
+          outbound ? "bg-tile-blue" : "bg-tile-green",
+        )}
+      />
       <div className="flex items-center gap-2.5">
         <Avatar name={who} address={item.from_address} small />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-bold text-foreground">{who}</p>
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-xs font-extrabold text-foreground">{who}</p>
+            {isLatest && (
+              <span className="rounded-full bg-primary/[0.1] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-primary">
+                Latest
+              </span>
+            )}
+          </div>
           {!outbound && item.from_name && item.from_address && (
             <p className="truncate text-[11px] font-medium text-muted-foreground">
               {item.from_address}
             </p>
           )}
         </div>
-        <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">
           {formatWhen(item.occurred_at)}
         </span>
       </div>
 
-      <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
+      <p className="mt-3 whitespace-pre-wrap text-[13px] leading-6 text-foreground/90">
         {reply || "(no text content)"}
       </p>
 
@@ -965,27 +1081,118 @@ function MessageBubble({
         </div>
       )}
 
+      {/* Named buttons rather than a row of glyphs. What can be done with an
+          attachment — look at it, keep a copy, take it out of Gmail — are three
+          different decisions, and an icon-only strip made all three look like
+          the same one. */}
       {files.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/60 pt-2.5">
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
+              {files.length} attachment{files.length === 1 ? "" : "s"}
+            </p>
+            <p className="text-[10px] font-medium text-muted-foreground">Preview before filing</p>
+          </div>
+        <ul className="space-y-2">
           {files.map((attachment) => (
-            <button
+            <li
               key={attachment.part_id}
-              type="button"
-              onClick={() =>
-                downloadInboxAttachment(
-                  item.message_id,
-                  attachment.part_id,
-                  attachment.filename,
-                )
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1 text-[11px] font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+              className="rounded-xl border border-border/70 bg-secondary/[0.28] p-3"
             >
-              <Paperclip className="size-3 text-muted-foreground" />
-              {attachment.filename}
-              <Download className="size-3 text-muted-foreground" />
-            </button>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-card text-primary shadow-xs ring-1 ring-inset ring-border/60">
+                  <FileText className="size-4" strokeWidth={2.1} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-bold text-foreground">
+                    {attachment.filename}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] font-medium text-muted-foreground">
+                    Email attachment{attachment.size_bytes !== null ? ` · ${formatAttachmentSize(attachment.size_bytes)}` : ""}
+                  </span>
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {isPreviewable(attachment.mime_type) && (
+                  <AttachmentAction
+                    icon={Eye}
+                    label="Preview"
+                    priority="primary"
+                    onClick={() =>
+                      setPreviewing({
+                        partId: attachment.part_id,
+                        filename: attachment.filename,
+                      })
+                    }
+                  />
+                )}
+                <AttachmentAction
+                  icon={Download}
+                  label="Download"
+                  priority={isPreviewable(attachment.mime_type) ? "icon" : "secondary"}
+                  onClick={() =>
+                    downloadInboxAttachment(
+                      item.message_id,
+                      attachment.part_id,
+                      attachment.filename,
+                    )
+                  }
+                />
+                {/* The promotion out of Gmail and into the library. Deliberate
+                    here, unlike a supplier reply on an enquiry, which is filed
+                    automatically: the inbox is the client's whole mailbox and
+                    keeping all of it would fill the library with noise. */}
+                <AttachmentAction
+                  icon={FolderPlus}
+                  label="Save to Documents"
+                  priority="secondary"
+                  onClick={() =>
+                    setSaving({
+                      partId: attachment.part_id,
+                      filename: attachment.filename,
+                    })
+                  }
+                />
+              </div>
+            </li>
           ))}
+        </ul>
         </div>
+      )}
+
+      {previewing && (
+        <FilePreview
+          title={previewing.filename}
+          subtitle="Email attachment"
+          cacheKey={`${item.message_id}:${previewing.partId}`}
+          load={() =>
+            inboxAttachmentPreviewUrl(item.message_id, previewing.partId)
+          }
+          onDownload={() =>
+            downloadInboxAttachment(
+              item.message_id,
+              previewing.partId,
+              previewing.filename,
+            )
+          }
+          onClose={() => setPreviewing(null)}
+        />
+      )}
+
+      {saving && (
+        <AddToDocumentsDialog
+          source={{
+            kind: "inbox",
+            messageId: item.message_id,
+            partId: saving.partId,
+          }}
+          filename={saving.filename}
+          companyId={companyId}
+          companyName={companyName}
+          sourcingRequestId={sourcingRequestId}
+          onClose={() => setSaving(null)}
+        />
       )}
     </article>
   );
@@ -1114,4 +1321,43 @@ function formatWhen(value: string | null): string {
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
   });
+}
+
+/** One named action on an attachment. Small, but a button with a word on it —
+ *  the icon-only strip this replaced made "download" and "keep this forever"
+ *  look like the same gesture. */
+function AttachmentAction({
+  icon: Icon,
+  label,
+  onClick,
+  priority = "secondary",
+}: {
+  icon: typeof Download;
+  label: string;
+  onClick: () => void;
+  priority?: "primary" | "secondary" | "icon";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold transition-colors",
+        priority === "primary" && "bg-primary px-2.5 py-1.5 text-primary-foreground shadow-sm shadow-primary/20 hover:brightness-95",
+        priority === "secondary" && "border border-border bg-card px-2.5 py-1.5 text-foreground shadow-xs hover:border-primary/40 hover:bg-accent",
+        priority === "icon" && "size-7 border border-border bg-card text-muted-foreground shadow-xs hover:border-primary/40 hover:bg-accent hover:text-foreground",
+      )}
+    >
+      <Icon className="size-3.5" strokeWidth={2.2} />
+      {priority !== "icon" && label}
+    </button>
+  );
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

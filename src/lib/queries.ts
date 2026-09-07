@@ -2,6 +2,7 @@
 
 import {
   useQuery,
+  useInfiniteQuery,
   useQueries,
   useMutation,
   useQueryClient,
@@ -40,6 +41,8 @@ import type {
   ExtractionResult,
   InboxBucket,
   InboxPage,
+  SentMailParams,
+  SentMessage,
   InboxThread,
   MatchCandidate,
   SenderRule,
@@ -60,6 +63,7 @@ import type {
   AppNotification,
   UnreadCount,
   MarkAllReadResult,
+  DeleteAllNotificationsResult,
   InquiryDraft,
   InquiryPreviewInput,
   MailboxSettings,
@@ -112,6 +116,12 @@ import type {
   TenderStats,
   TenderUpdateInput,
   ActivityEntry,
+  DocType,
+  DocumentItem,
+  DocumentListParams,
+  DocumentStats,
+  DocumentTarget,
+  DocumentUploadResult,
 } from "@/types/api";
 
 /**
@@ -156,6 +166,12 @@ export const keys = {
     stats: ["contacts", "stats"] as const,
     departments: ["contacts", "departments"] as const,
     activity: (id: number) => ["contacts", "activity", id] as const,
+  },
+  documents: {
+    all: ["documents"] as const,
+    list: (params: DocumentListParams) => ["documents", "list", params] as const,
+    detail: (id: number) => ["documents", "detail", id] as const,
+    stats: ["documents", "stats"] as const,
   },
   products: {
     all: ["products"] as const,
@@ -203,6 +219,9 @@ export const keys = {
       ["mailbox", "inbox", bucket, pageToken] as const,
     inboxThread: (threadId: string) =>
       ["mailbox", "inbox-thread", threadId] as const,
+    /** The prefix, for invalidating every page and filter at once. */
+    sentAll: ["mailbox", "sent"] as const,
+    sent: (params: SentMailParams) => ["mailbox", "sent", params] as const,
     senderRules: ["mailbox", "sender-rules"] as const,
   },
   sourcing: {
@@ -223,11 +242,23 @@ export const keys = {
   },
 };
 
-/** Drop empty values so they never reach the URL as `?q=&page=1`. */
+/** Drop empty values so they never reach the URL as `?q=&page=1`.
+ *
+ *  An array value is expanded into a repeated parameter (`?doc_type=coa&
+ *  doc_type=msds`), which is what FastAPI reads back as a `list[...]` query.
+ *  An empty array contributes nothing, so "no type filter" and "every type
+ *  ticked off" both mean unfiltered. */
 function toQueryString(params: Record<string, unknown>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null || item === "") continue;
+        search.append(key, String(item));
+      }
+      continue;
+    }
     search.set(key, String(value));
   }
   const qs = search.toString();
@@ -395,6 +426,320 @@ export function useProductStats() {
     queryFn: () => apiFetch<ProductStats>("/products/stats"),
     staleTime: 5 * 60_000,
   });
+}
+
+/* --- Document library (FR-DOC) ------------------------------------------ */
+
+export function useDocuments(params: DocumentListParams) {
+  return useQuery({
+    queryKey: keys.documents.list(params),
+    queryFn: () =>
+      apiFetch<Page<DocumentItem>>(`/documents${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Header counts. Kept out of the list key on purpose: the strip describes the
+ *  whole library, so it must not refetch when a filter narrows the table. */
+export function useDocumentStats() {
+  return useQuery({
+    queryKey: keys.documents.stats,
+    queryFn: () => apiFetch<DocumentStats>("/documents/stats"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Upload one file.
+ *
+ * One request per file rather than one for the batch: a drag-and-drop of eight
+ * certificates should not lose seven of them because the third was a .doc, and
+ * per-file requests are what let the UI report progress and failure per row.
+ */
+export function useUploadDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      file,
+      docType,
+      title,
+      notes,
+      target,
+      targetId,
+    }: {
+      file: File;
+      docType: DocType;
+      title?: string;
+      notes?: string;
+      target?: DocumentTarget;
+      targetId?: number;
+    }) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("doc_type", docType);
+      if (title) form.append("title", title);
+      if (notes) form.append("notes", notes);
+      if (target && targetId) {
+        form.append("target", target);
+        form.append("target_id", String(targetId));
+      }
+      // No content-type header: only the browser can write the multipart
+      // boundary, and setting it by hand produces a body FastAPI cannot parse.
+      return apiFetch<DocumentUploadResult>("/documents", {
+        method: "POST",
+        body: form,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+/**
+ * "Add to Documents" on an inbox attachment.
+ *
+ * Separate from `useUploadDocument` because the bytes never touch the browser:
+ * the server pulls them from Gmail and stores them, so this posts metadata
+ * rather than a file. That also means a 30 MB attachment is saved without being
+ * downloaded and re-uploaded across the user's connection.
+ */
+export function useSaveInboxAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      messageId,
+      partId,
+      docType,
+      title,
+      notes,
+      target,
+      targetId,
+    }: {
+      messageId: string;
+      partId: string;
+      docType: DocType;
+      title?: string;
+      notes?: string;
+      target?: DocumentTarget;
+      targetId?: number;
+    }) =>
+      apiFetch<DocumentUploadResult>(
+        `/mailbox/inbox/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}/save`,
+        {
+          method: "POST",
+          json: {
+            doc_type: docType,
+            title,
+            notes,
+            target: targetId ? target : undefined,
+            target_id: targetId,
+          },
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+/**
+ * "Add to Documents" on a *synced* attachment — the sourcing conversation's
+ * version of `useSaveInboxAttachment`.
+ *
+ * Different endpoint because the two have different starting points: an inbox
+ * attachment is addressed by Gmail message and MIME part (nothing about it is
+ * stored), while a synced one already has a `mail_attachment` row and an id.
+ * Both keep the bytes on the server side of the connection.
+ *
+ * Invalidates sourcing as well as documents: the enquiry's Documents tab is
+ * reading the library, so a save has to show up there without a reload.
+ */
+export function useSaveMailAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      attachmentId,
+      docType,
+      title,
+      notes,
+      target,
+      targetId,
+    }: {
+      attachmentId: number;
+      docType: DocType;
+      title?: string;
+      notes?: string;
+      target?: DocumentTarget;
+      targetId?: number;
+    }) =>
+      apiFetch<DocumentUploadResult>(
+        `/mailbox/attachments/${attachmentId}/save`,
+        {
+          method: "POST",
+          json: {
+            doc_type: docType,
+            title,
+            notes,
+            target: targetId ? target : undefined,
+            target_id: targetId,
+          },
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+export function useUpdateDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...payload
+    }: {
+      id: number;
+      title?: string;
+      doc_type?: DocType;
+      notes?: string;
+    }) =>
+      apiFetch<DocumentItem>(`/documents/${id}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<{ detail: string }>(`/documents/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+export function useLinkDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      target,
+      targetId,
+    }: {
+      id: number;
+      target: DocumentTarget;
+      targetId: number;
+    }) =>
+      apiFetch<DocumentItem>(`/documents/${id}/links`, {
+        method: "POST",
+        json: { target, target_id: targetId },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+export function useUnlinkDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, linkId }: { id: number; linkId: number }) =>
+      apiFetch<DocumentItem>(`/documents/${id}/links/${linkId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documents.all });
+    },
+  });
+}
+
+/** Download a library document.
+ *
+ *  Goes through `apiFetch` rather than a plain `<a href>` because the file
+ *  endpoint is behind the auth check (FR-DOC-05) and a bare link sends no
+ *  Authorization header — it would render the login redirect as a corrupt
+ *  file. The blob URL is revoked on the next tick; holding it would pin the
+ *  whole file in memory for the life of the tab. */
+export async function downloadDocument(id: number, filename: string) {
+  const file = await apiFetch<Blob>(`/documents/${id}/file?download=true`, {
+    blob: true,
+  });
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** A blob URL for previewing a document inline (FR-DOC-07), with the media
+ *  type the server actually served.
+ *
+ *  The type is returned rather than read off the document row because they can
+ *  differ: the preview branch transcodes an image no browser decodes — a HEIC
+ *  off a phone, a TIFF scan — to JPEG, while the row still records what was
+ *  filed. Rendering against the stored type would put a `image/heic` label on
+ *  JPEG bytes, which is how you get an empty frame.
+ *
+ *  The caller owns the URL and must revoke it when the preview closes — an
+ *  un-revoked object URL keeps the file in memory until the tab is closed. */
+export async function documentPreviewUrl(
+  id: number,
+  updatedAt: string,
+): Promise<{ url: string; mime: string }> {
+  // `v` is ignored by the API and exists only to key the browser's HTTP cache.
+  // The endpoint now sends `must-revalidate`, so a fresh cache entry can never
+  // go stale on its own — but entries made *before* that header existed are
+  // still governed by the heuristic freshness they were stored with, and a
+  // document whose stored rendition changed underneath it (the WebP backfill)
+  // would keep being answered from one. `updated_at` moves whenever the row
+  // does, which is the only thing that also moves when the file does.
+  const file = await apiFetch<Blob>(
+    `/documents/${id}/file?v=${encodeURIComponent(updatedAt)}`,
+    { blob: true },
+  );
+  return { url: URL.createObjectURL(file), mime: file.type };
+}
+
+/** Preview loaders for mail attachments.
+ *
+ *  Same bytes the download buttons fetch — the difference is only what is done
+ *  with them. A `blob:` URL sidesteps the endpoint's
+ *  `Content-Disposition: attachment`, which exists to stop the browser
+ *  rendering a supplier's HTML on our origin; `FilePreview` re-imposes that
+ *  protection by refusing to render anything but PDFs and raster images.
+ *
+ *  The caller owns the URL and must revoke it when the preview closes. */
+export async function mailAttachmentPreviewUrl(
+  attachmentId: number,
+): Promise<{ url: string; mime: string }> {
+  const file = await apiFetch<Blob>(
+    `/mailbox/attachments/${attachmentId}/download`,
+    { blob: true },
+  );
+  return { url: URL.createObjectURL(file), mime: file.type };
+}
+
+export async function inboxAttachmentPreviewUrl(
+  messageId: string,
+  partId: string,
+): Promise<{ url: string; mime: string }> {
+  const file = await apiFetch<Blob>(
+    `/mailbox/inbox/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}/download`,
+    { blob: true },
+  );
+  return { url: URL.createObjectURL(file), mime: file.type };
 }
 
 /* --- Sourcing (FR-SRC) -------------------------------------------------- */
@@ -1882,6 +2227,23 @@ export function useNotifications(page: number, unreadOnly = false) {
   });
 }
 
+/**
+ * The notification history. The bell starts with the newest page, then lets
+ * the user explicitly pull older pages into the same scrollable timeline.
+ */
+export function useInfiniteNotifications(unreadOnly = false) {
+  return useInfiniteQuery({
+    queryKey: ["notifications", "history", unreadOnly] as const,
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      apiFetch<Page<AppNotification>>(
+        `/notifications?page=${pageParam}&size=20${unreadOnly ? "&unread_only=true" : ""}`,
+      ),
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
+  });
+}
+
 /** The badge. Its own endpoint so opening the tray is not a prerequisite for
  *  knowing there is something in it. */
 export function useUnreadCount() {
@@ -1913,6 +2275,28 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+export function useDeleteNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<void>(`/notifications/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.notifications.all });
+    },
+  });
+}
+
+export function useDeleteAllNotifications() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<DeleteAllNotificationsResult>("/notifications", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.notifications.all });
+    },
+  });
+}
+
 // --- Inbox (2026-08-31) ------------------------------------------------------
 //
 // The mailbox module gained a real inbox: the client can now read mail that
@@ -1938,6 +2322,23 @@ export function useMarkAllNotificationsRead() {
  *  back with fewer rows than asked for while still carrying a token: the
  *  server walks a scan budget looking for messages of the requested bucket and
  *  stops when it runs out, which is a "load more", not an end. */
+/** Everything this system has emailed, newest first.
+ *
+ *  The one mailbox query that touches no Google API: it reads the
+ *  `communication` rows every send path already writes. So unlike `useInbox`
+ *  it has an ordinary staleTime, pages by number rather than by an opaque
+ *  provider token, and keeps working while the weekly Gmail grant is expired —
+ *  which is exactly when "what did I send that supplier?" gets asked.
+ */
+export function useSentMail(params: SentMailParams) {
+  return useQuery({
+    queryKey: keys.mailbox.sent(params),
+    queryFn: () =>
+      apiFetch<Page<SentMessage>>(`/mailbox/sent${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useInbox(
   bucket: InboxBucket,
   pageToken?: string | null,

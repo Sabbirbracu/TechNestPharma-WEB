@@ -11,8 +11,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { DOC_TYPES } from "@/components/documents/doc-taxonomy";
 import { cn } from "@/lib/utils";
-import type { LabelledCount } from "@/types/api";
+import type { DocType, LabelledCount } from "@/types/api";
 
 /**
  * The document library at a glance.
@@ -34,38 +35,95 @@ type DocTile = {
   types: string[];
 };
 
+// Every `doc_type` must appear in exactly one tile, or its documents are
+// counted nowhere and the card quietly under-reports the library. The eight
+// regulatory types added in migration 0031 are the reason this list is longer
+// than the five it started with. `DOC_TYPES` in the documents module is the
+// canonical taxonomy; these tiles are a coarser grouping of the same values,
+// and `assertEveryTypeIsCounted` below keeps the two from drifting apart.
 const TILES: DocTile[] = [
   {
-    label: "Brochures",
-    icon: FileText,
-    chip: "bg-tile-green-bg text-tile-green",
-    types: ["brochure", "product_catalogue", "leaflet_photo"],
-  },
-  {
-    label: "Certificates",
-    icon: Award,
-    chip: "bg-tile-blue-bg text-tile-blue",
-    types: ["gmp_certificate", "cep_certificate", "dmf_letter"],
-  },
-  {
-    label: "COA",
+    label: "Quality",
     icon: FileCheck2,
     chip: "bg-tile-purple-bg text-tile-purple",
-    types: ["coa"],
+    types: [
+      "coa",
+      "test_report",
+      "specification",
+      "technical_data_sheet",
+      "msds",
+      "compendial_monograph",
+      "leaflet_photo",
+    ],
   },
   {
-    label: "Spec Sheets",
+    label: "Regulatory",
+    icon: Award,
+    chip: "bg-tile-blue-bg text-tile-blue",
+    types: [
+      "dmf_letter",
+      "site_master_file",
+      "plant_master_file",
+      "cep_certificate",
+      "gmp_certificate",
+      "regulatory_certificate",
+      "drug_authority_certificate",
+      "license",
+      "tse_bse_statement",
+      "halal_certificate",
+      "kosher_certificate",
+      "audit_report",
+    ],
+  },
+  {
+    label: "Tender",
     icon: ScrollText,
-    chip: "bg-tile-amber-bg text-tile-amber",
-    types: ["specification", "msds"],
+    chip: "bg-tile-green-bg text-tile-green",
+    types: [
+      "tender_notice",
+      "tender_specification",
+      "tender_schedule",
+      "tender_attachment",
+      "tender_result",
+    ],
   },
   {
-    label: "Other Documents",
+    label: "Commercial",
+    icon: FileText,
+    chip: "bg-tile-amber-bg text-tile-amber",
+    types: [
+      "quotation",
+      "proforma_invoice",
+      "invoice",
+      "purchase_order",
+      "contract",
+      "price_list",
+      "brochure",
+      "company_profile",
+      "product_catalogue",
+      "letter",
+    ],
+  },
+  {
+    label: "Other",
     icon: Files,
     chip: "bg-tile-teal-bg text-tile-teal",
-    types: ["business_card", "price_list", "audit_report", "other"],
+    types: ["business_card", "other"],
   },
 ];
+
+/** A compile-time check that the tiles cover the whole enum. Adding a
+ *  `doc_type` without giving it a tile makes this line fail to typecheck,
+ *  rather than making the dashboard silently lose the count. */
+const COUNTED = new Set(TILES.flatMap((tile) => tile.types));
+const UNCOUNTED: DocType[] = DOC_TYPES.map((type) => type.value).filter(
+  (value) => !COUNTED.has(value),
+);
+if (process.env.NODE_ENV !== "production" && UNCOUNTED.length > 0) {
+  console.warn(
+    `documents-overview: no tile counts ${UNCOUNTED.join(", ")}`,
+  );
+}
 
 export function DocumentsOverview({
   byType,

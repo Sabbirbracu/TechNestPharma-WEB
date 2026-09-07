@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { BadgeCheck, Calendar, Loader2, Pencil, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { EntityDocuments } from "@/components/documents/entity-documents";
 import { Button } from "@/components/ui/button";
 import { CHANNEL_META, hrefForChannel } from "@/components/contact-channel";
 import {
@@ -311,6 +312,16 @@ export function ProductDetailsDialog({
                 </p>
               </Section>
             )}
+
+            {/* The other half of the library's two-way relationship: from a
+                product you reach every certificate filed against it. */}
+            <Section label="Documents">
+              <EntityDocuments
+                target="product"
+                targetId={product.id}
+                compact
+              />
+            </Section>
           </div>
 
           {/* --- Who sells it ---------------------------------------------- */}

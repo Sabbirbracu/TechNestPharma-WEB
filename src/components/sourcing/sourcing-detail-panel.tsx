@@ -4,17 +4,24 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
+  AlertCircle,
+  ArrowDownLeft,
+  ArrowUpRight,
   Bookmark,
   ChevronDown,
+  Download,
   FileText,
   Loader2,
+  MessageCircle,
   MessageSquare,
   MoreVertical,
   NotebookPen,
   Paperclip,
   Send,
+  Sparkles,
   X,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,10 +30,13 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
+  downloadDocument,
   useChangeSourcingStatus,
+  useDocuments,
   useMailboxSettings,
   useSourcingRequest,
 } from "@/lib/queries";
+import { docTypeMeta, formatBytes, typeChip } from "@/components/documents/doc-taxonomy";
 import { EnquiryDialog } from "@/components/enquiry/enquiry-dialog";
 import { ComposeDialog } from "@/components/inbox/compose-dialog";
 import {
@@ -243,6 +253,8 @@ export function SourcingDetailPanel({
               ) : tab === "mail" ? (
                 <MailThread
                   requestId={request.id}
+                  companyId={request.company?.id ?? null}
+                  requestLabel={request.product?.name_en ?? null}
                   onReply={(context) =>
                     context ? setReplying(context) : setComposing(true)
                   }
@@ -258,7 +270,7 @@ export function SourcingDetailPanel({
               ) : tab === "quotations" ? (
                 <Quotations items={detail.quotations} />
               ) : (
-                <Documents />
+                <Documents requestId={request.id} />
               )}
             </div>
           </section>
@@ -675,20 +687,62 @@ function Timeline({
  * message with a body and attachments.
  */
 function Communications({ items }: { items: Communication[] }) {
-  if (items.length === 0) {
-    return (
-      <EmptyTab
-        icon={MessageSquare}
-        title="Nothing logged off email"
-        body="Log a call, a meeting, or a WhatsApp message and it appears here and on the timeline. Email lives in Conversation."
-      />
-    );
-  }
-
   const sorted = [...items].sort((a, b) =>
     byNewest(a.occurred_at, b.occurred_at),
   );
 
+  return (
+    <div className="space-y-4">
+      <RoadmapNotice />
+
+      {sorted.length === 0 ? (
+        <EmptyTab
+          icon={MessageSquare}
+          title="Nothing logged off email"
+          body="Log a call, a meeting, or a WhatsApp message and it appears here and on the timeline. Email lives in Conversation."
+        />
+      ) : (
+        <CommunicationList items={sorted} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this tab will be, said plainly while it is not that yet.
+ *
+ * A tab that shows only hand-typed log entries reads as broken to someone who
+ * expected their WhatsApp thread in it — and this desk does a great deal of
+ * business on WhatsApp and WeChat. Naming the gap, and naming it as a decision
+ * rather than an omission, is the difference between "not built" and "does not
+ * work".
+ */
+function RoadmapNotice() {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3.5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning-foreground">
+        <Sparkles className="size-4" strokeWidth={2.2} />
+      </span>
+      <div className="min-w-0 space-y-1">
+        <p className="text-[13px] font-bold text-foreground">
+          Messaging apps are not connected yet
+        </p>
+        <p className="text-xs font-medium leading-relaxed text-muted-foreground">
+          WhatsApp, WeChat and Messenger can be integrated so their threads
+          appear here beside email, the same way Gmail already does. Until then
+          this tab holds what has been logged by hand — calls, meetings, and
+          messages someone typed up.
+        </p>
+        <p className="flex items-center gap-1.5 pt-0.5 text-[11px] font-semibold text-muted-foreground">
+          <MessageCircle className="size-3.5" strokeWidth={2.2} />
+          Ask to have it built when you want it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CommunicationList({ items: sorted }: { items: Communication[] }) {
   return (
     <ul className="space-y-2.5">
       {sorted.map((item) => (
@@ -902,16 +956,144 @@ function QuoteCell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The document library has no API for sourcing enquiries yet — the schema link
- *  exists (`document_link.sourcing_request_id`) but nothing serves it. Saying
- *  so beats a tab that silently shows nothing. */
-function Documents() {
+/**
+ * Every file this enquiry has, with the one fact a paperclip cannot carry:
+ * which way it travelled.
+ *
+ * "Who sent this?" is the first question asked of a document on an enquiry,
+ * and `source: email` cannot answer it — a COA the supplier attached and a
+ * spec sheet we attached are the same value there. The direction comes off the
+ * message the attachment hung on, resolved server-side (`mail_direction`).
+ *
+ * Supplier attachments arrive here on their own now: they are copied into the
+ * library as the reply syncs (2026-09-07), rather than waiting for someone to
+ * press Save on each one. Anything filed against the enquiry by hand shows up
+ * in the same list, because this reads the library rather than the mailbox.
+ */
+function Documents({ requestId }: { requestId: number }) {
+  const { data, isPending, error } = useDocuments({
+    sourcing_request_id: requestId,
+    size: 50,
+  });
+  const documents = data?.items ?? [];
+
+  if (isPending) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center gap-2 text-sm font-medium text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
+        Loading documents…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-[200px] items-center justify-center gap-2 text-sm font-semibold text-destructive"
+      >
+        <AlertCircle className="size-4" />
+        Documents could not be loaded.
+      </div>
+    );
+  }
+
+  if (documents.length === 0) {
+    return (
+      <EmptyTab
+        icon={Paperclip}
+        title="No documents on this enquiry yet"
+        body="Anything the supplier attaches to a reply is filed here automatically. Files you attach to an enquiry, and anything filed against it by hand, appear here too."
+      />
+    );
+  }
+
   return (
-    <EmptyTab
-      icon={Paperclip}
-      title="Documents are not connected yet"
-      body="The link between an enquiry and its attachments exists in the database; the document API for it has not been built."
-    />
+    <ul className="space-y-2.5">
+      {documents.map((document) => {
+        const meta = docTypeMeta(document.doc_type);
+        const inbound = document.mail_direction === "inbound";
+        const outbound = document.mail_direction === "outbound";
+
+        return (
+          <li
+            key={document.id}
+            className="flex items-center gap-3 rounded-xl border border-border/60 p-3.5 transition-colors hover:border-border"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <FileText className="size-5" strokeWidth={2} />
+            </span>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 truncate text-sm font-bold text-foreground">
+                  {document.title}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
+                    typeChip(document.doc_type),
+                  )}
+                >
+                  {meta.label}
+                </span>
+              </div>
+
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {/* The label the tab exists for. Uploaded-by-hand documents get
+                    the uploader's name instead — same question, different
+                    answer. */}
+                {inbound || outbound ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset",
+                      inbound
+                        ? "bg-tile-green-bg text-tile-green ring-tile-green/20"
+                        : "bg-tile-blue-bg text-tile-blue ring-tile-blue/20",
+                    )}
+                  >
+                    {inbound ? (
+                      <ArrowDownLeft className="size-3" strokeWidth={2.5} />
+                    ) : (
+                      <ArrowUpRight className="size-3" strokeWidth={2.5} />
+                    )}
+                    {inbound ? "From supplier" : "Sent by us"}
+                  </span>
+                ) : document.uploaded_by ? (
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    Added by {document.uploaded_by}
+                  </span>
+                ) : null}
+
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {formatBytes(document.size_bytes)} ·{" "}
+                  {formatDateTime(document.created_at)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              aria-label={`Download ${document.title}`}
+              onClick={async () => {
+                try {
+                  await downloadDocument(document.id, document.title);
+                } catch (downloadError) {
+                  toast.error(
+                    downloadError instanceof Error
+                      ? downloadError.message
+                      : "Could not download it.",
+                  );
+                }
+              }}
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Download className="size-[18px]" strokeWidth={2} />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

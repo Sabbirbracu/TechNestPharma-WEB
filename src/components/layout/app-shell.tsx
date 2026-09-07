@@ -180,23 +180,35 @@ export function AppShell({ children }: { children: ReactNode }) {
           role="dialog"
           aria-modal="true"
           aria-label="Notifications"
-          className={`absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border/60 bg-card shadow-2xl transition-transform duration-300 ease-out ${
+          className={`absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-border/60 bg-card/95 shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out ${
             notifOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
-            <h2 className="text-base font-bold tracking-tight text-foreground">Notifications</h2>
+          <div className="flex items-start justify-between border-b border-border/60 bg-gradient-to-br from-primary/[0.13] via-primary/[0.04] to-transparent px-5 py-5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <Bell className="size-5" strokeWidth={2.25} />
+              </span>
+              <div>
+                <h2 className="text-base font-extrabold tracking-tight text-foreground">Notifications</h2>
+                <p className="mt-0.5 text-xs font-medium text-muted-foreground">
+                  {unread > 0
+                    ? `${unread} item${unread === 1 ? "" : "s"} need your attention`
+                    : "You’re all caught up"}
+                </p>
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setNotifOpen(false)}
               aria-label="Close notifications"
-              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-card/80 hover:text-foreground"
             >
               <X className="size-4.5" />
             </button>
           </div>
 
-          <NotificationList onNavigate={() => setNotifOpen(false)} />
+          <NotificationList unreadCount={unread} onNavigate={() => setNotifOpen(false)} />
         </aside>
       </div>
 

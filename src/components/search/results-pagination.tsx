@@ -117,8 +117,10 @@ function PageButton({
 }
 
 /** First and last page always shown, three around the current one, ellipses
- *  for the gaps — the shape the mockup pages through (1 2 3 … 9). */
-function pageWindow(page: number, pageCount: number): (number | "gap")[] {
+ *  for the gaps — the shape the mockup pages through (1 2 3 … 9). Exported so
+ *  a pager with different chrome (the company catalogue's) windows identically
+ *  instead of re-deriving it. */
+export function pageWindow(page: number, pageCount: number): (number | "gap")[] {
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, i) => i + 1);
   }

@@ -44,7 +44,7 @@ export async function fetchAllCompanies(): Promise<CompanyListItem[]> {
 
 /** RFC 4180, plus a quote in front of anything a spreadsheet would read as a
  *  formula — company names in this directory genuinely start with symbols. */
-function csvField(value: string | number | null | undefined): string {
+export function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
   let text = String(value);
   if (/^[=+\-@]/.test(text)) text = `'${text}`;
@@ -74,12 +74,13 @@ export function companiesToCsv(rows: CompanyListItem[]): string {
 
 /** The BOM is deliberate: without it Excel on Windows reads the file as the
  *  system codepage and mangles every Chinese company name. */
-export function downloadCsv(csv: string): void {
+export function downloadCsv(csv: string, filename?: string): void {
   const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `companies-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download =
+    filename ?? `companies-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.append(link);
   link.click();
   link.remove();

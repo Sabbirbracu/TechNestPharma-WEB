@@ -1,29 +1,21 @@
 import type { Metadata } from "next";
-import { FileText, Upload } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
-import { Button } from "@/components/ui/button";
+import { DocumentsContent } from "@/components/documents/documents-content";
 
 export const metadata: Metadata = { title: "Documents" };
 
+/**
+ * The document library (FR-DOC).
+ *
+ * Deliberately not "every file in the system". A tender notice is a source
+ * record with its own table and its own lifecycle, and a mail attachment lives
+ * in Gmail until somebody decides it is worth keeping — both reach this library
+ * only by an explicit act. What is here is evidence: the COAs, master files,
+ * certificates and spec sheets filed against a supplier, a product, an offer, a
+ * sample or an inquiry.
+ *
+ * The header renders inside the client component rather than through
+ * `PageHeader`, because "Add Document" drives the upload panel's state.
+ */
 export default function DocumentsPage() {
-  return (
-    <>
-      <PageHeader
-        title="Documents"
-        description="Leaflets, COAs, certificates, and business cards in one library."
-      >
-        <Button>
-          <Upload />
-          Upload
-        </Button>
-      </PageHeader>
-
-      <EmptyState
-        icon={FileText}
-        title="No documents yet"
-        description="Files are typed, checksummed for de-duplication, and served only through an authenticated endpoint — never statically."
-      />
-    </>
-  );
+  return <DocumentsContent />;
 }

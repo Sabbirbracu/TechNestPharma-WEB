@@ -80,6 +80,11 @@ export type CompanyDetail = CompanyListItem & {
   lead_source: string | null;
   notes: string | null;
   contacts: CompanyContact[];
+  /** The Overview card's description, which the backend does not serve yet
+   *  (2026-09-07). Optional rather than nullable so the page compiles and
+   *  renders its empty state against today's payload, and starts showing the
+   *  text the day the column lands — nothing else needs to change. */
+  description?: string | null;
 };
 
 export type ContactCompanyRef = {
@@ -612,6 +617,8 @@ export type OfferListParams = ListParams & {
   product_id?: number;
   /** "packaging_material" turns the offers screen into the packaging list. */
   material_type?: MaterialType;
+  market_segment?: MarketSegment;
+  is_sterile?: boolean;
 };
 
 /* -------------------------------------------------------------------------
@@ -1387,8 +1394,14 @@ export type MailAttachment = {
   filename: string;
   mime_type: string | null;
   size_bytes: number | null;
-  /** Signature logos and the like — hidden by default in the thread view. */
+  /** Signature logos and the like — hidden by default in the thread view.
+   *  Only ever true for images: a PDF a sender marked `inline` is still a
+   *  document someone wants (2026-09-07). */
   is_inline: boolean;
+  /** The library row this file was copied into. Supplier replies are filed
+   *  automatically as they sync, so this is normally set on inbound
+   *  attachments and null on ours. */
+  document_id: number | null;
 };
 
 export type MailMessage = {
@@ -1677,6 +1690,8 @@ export type UnreadCount = { unread: number };
 
 export type MarkAllReadResult = { marked: number };
 
+export type DeleteAllNotificationsResult = { deleted: number };
+
 // --- Inbox (2026-08-31) ------------------------------------------------------
 //
 // The mailbox module reads the client's own Gmail here, rather than only the
@@ -1754,6 +1769,34 @@ export type InboxThread = {
   company_name: string | null;
 };
 
+/** GET /mailbox/sent — one email this system sent.
+ *
+ *  Read from the ERP's own `communication` rows, not from Gmail's Sent folder.
+ *  That is what lets a row name the supplier and the enquiry it belongs to,
+ *  and what makes the list work while the weekly Gmail grant is expired. */
+export type SentMessage = {
+  id: number;
+  occurred_at: string;
+  subject: string | null;
+  body: string | null;
+  /** Where it went, recorded at send time — not looked up from the contact's
+   *  current address, which may have changed since. */
+  counterparty: string | null;
+  external_thread_id: string | null;
+  has_attachments: boolean;
+  attachments: MailAttachment[];
+  company: { id: number; name_en: string } | null;
+  /** The enquiry it belongs to, named by its product. Null for the free-form
+   *  sends, which are the ones with nowhere else in the app to be seen. */
+  request: { id: number; product_name: string } | null;
+  tender_id: number | null;
+};
+
+export type SentMailParams = ListParams & {
+  /** Only mail belonging to no sourcing request. */
+  untracked?: boolean;
+};
+
 /** POST /mailbox/inbox/send — an email belonging to no tender and no request. */
 export type DirectSendInput = MailSendInput & {
   company_id?: number | null;
@@ -1785,4 +1828,154 @@ export type SenderRuleInput = {
   is_business: boolean;
   company_id?: number | null;
   note?: string | null;
+};
+
+/* --- Document library (FR-DOC) -------------------------------------------- */
+
+/** Mirrors `app.models.enums.DocType`. The second block was added with the
+ *  library itself (migration 0031) for the regulatory paperwork a sourcing desk
+ *  actually files; before that it all landed in `other`. */
+export type DocType =
+  | "brochure"
+  | "product_catalogue"
+  | "coa"
+  | "specification"
+  | "msds"
+  | "gmp_certificate"
+  | "dmf_letter"
+  | "cep_certificate"
+  | "business_card"
+  | "price_list"
+  | "audit_report"
+  | "leaflet_photo"
+  | "test_report"
+  | "compendial_monograph"
+  | "tse_bse_statement"
+  | "halal_certificate"
+  | "kosher_certificate"
+  | "drug_authority_certificate"
+  | "site_master_file"
+  | "plant_master_file"
+  | "quotation"
+  | "tender_notice"
+  | "company_profile"
+  | "letter"
+  | "regulatory_certificate"
+  | "license"
+  | "technical_data_sheet"
+  | "proforma_invoice"
+  | "invoice"
+  | "purchase_order"
+  | "contract"
+  | "tender_specification"
+  | "tender_schedule"
+  | "tender_attachment"
+  | "tender_result"
+  | "other";
+
+/** The six exclusive-arc targets of `document_link`. `offer` is the backend's
+ *  `supplier_product`: a COA belongs to one manufacturer's material, not to the
+ *  substance in the abstract. */
+export type DocumentTarget =
+  | "company"
+  | "contact"
+  | "product"
+  | "offer"
+  | "sample"
+  | "sourcing"
+  | "notice"
+  | "quotation";
+
+/** How a document arrived. Set by the endpoint that stored it, never chosen by
+ *  the user — provenance is a fact, not a label. */
+export type DocSource =
+  | "manual"
+  | "email"
+  | "tender"
+  | "import"
+  | "sourcing"
+  | "quotation"
+  | "purchase_order"
+  | "system";
+
+/** One filing of a document against a business object. `label` and `href` are
+ *  resolved server-side so the table can name and link what a file is about
+ *  without six more requests. */
+export type DocumentLink = {
+  id: number;
+  target: DocumentTarget;
+  target_id: number;
+  label: string;
+  href: string;
+};
+
+export type DocumentItem = {
+  id: number;
+  doc_type: DocType;
+  source: DocSource;
+  title: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  /** What the upload was before the server re-encoded it, or null when the
+   *  stored bytes are the uploaded bytes. `mime_type` and `size_bytes` always
+   *  describe what is stored. */
+  original_mime_type: string | null;
+  original_size_bytes: number | null;
+  page_count: number | null;
+  notes: string | null;
+  links: DocumentLink[];
+  created_at: string;
+  updated_at: string;
+  uploaded_by: string | null;
+  /** For files that arrived as email attachments: "inbound" if the supplier
+   *  sent it, "outbound" if we did. Null for anything uploaded by hand.
+   *  `source` says how a document arrived; this says which way it went. */
+  mail_direction: "inbound" | "outbound" | null;
+};
+
+/** `duplicate_of_existing` is a warning, not a failure: the same COA filed
+ *  against a second offer is one document with two links (FR-DOC-06). */
+export type DocumentUploadResult = {
+  document: DocumentItem;
+  duplicate_of_existing: boolean;
+};
+
+export type DocTypeCount = { doc_type: DocType; count: number };
+export type DocSourceCount = { source: DocSource; count: number };
+
+export type DocumentStats = {
+  total: number;
+  total_bytes: number;
+  storage_quota_bytes: number;
+  unlinked: number;
+  added_this_month: number;
+  added_previous_month: number;
+  /** Everything filed before this month began — the baseline the "vs last
+   *  month" figure on the Total tile is a percentage of. */
+  total_before_this_month: number;
+  distinct_types: number;
+  by_type: DocTypeCount[];
+  by_source: DocSourceCount[];
+  images: number;
+};
+
+export type DocumentListParams = ListParams & {
+  /** Repeatable on the wire; `toQueryString` expands the array. */
+  doc_type?: DocType[];
+  source?: DocSource[];
+  /** true = filed only, false = unfiled only, undefined = everything. */
+  linked?: boolean;
+  images_only?: boolean;
+  /** Calendar days, inclusive at both ends. */
+  added_from?: string;
+  added_to?: string;
+  tender_notice_id?: number;
+  quotation_id?: number;
+  company_id?: number;
+  contact_person_id?: number;
+  product_id?: number;
+  supplier_product_id?: number;
+  sample_request_id?: number;
+  sourcing_request_id?: number;
 };

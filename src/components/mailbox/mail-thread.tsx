@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   ChevronDown,
   Download,
+  Eye,
+  FileCheck,
+  FolderPlus,
   Loader2,
   Mail,
   MoreHorizontal,
@@ -15,10 +19,16 @@ import { Button } from "@/components/ui/button";
 import {
   downloadMailAttachment,
   isMailboxReauthError,
+  mailAttachmentPreviewUrl,
   useMailboxSettings,
   useRequestThread,
   useSyncRequestMail,
 } from "@/lib/queries";
+import { AddToDocumentsDialog } from "@/components/documents/add-to-documents-dialog";
+import {
+  FilePreview,
+  isPreviewable,
+} from "@/components/documents/file-preview";
 import { ApiError } from "@/lib/api";
 import { baseSubject, splitQuotedReply } from "@/lib/mail-quote";
 import { byNewest, cn } from "@/lib/utils";
@@ -59,9 +69,16 @@ export type ThreadReplyContext = {
 
 export function MailThread({
   requestId,
+  companyId = null,
+  requestLabel = null,
   onReply,
 }: {
   requestId: number;
+  /** The supplier, used only as the fallback filing target when an attachment
+   *  is saved — the enquiry is preferred, and always known here. */
+  companyId?: number | null;
+  /** What to call this enquiry when a saved attachment is filed against it. */
+  requestLabel?: string | null;
   onReply?: (context: ThreadReplyContext | null) => void;
 }) {
   const { data: settings } = useMailboxSettings();
@@ -199,6 +216,9 @@ export function MailThread({
               message={message}
               threadSubject={threadSubject}
               defaultOpen={index === 0}
+              requestId={requestId}
+              companyId={companyId}
+              requestLabel={requestLabel}
             />
           ))}
         </ol>
@@ -211,10 +231,20 @@ function MessageCard({
   message,
   threadSubject,
   defaultOpen,
+  requestId,
+  companyId,
+  requestLabel,
 }: {
   message: MailMessage;
   threadSubject: string;
   defaultOpen: boolean;
+  /** Where a saved attachment gets filed. The enquiry is preferred over the
+   *  supplier: a file filed on the company alone shows in the library but not
+   *  on this enquiry's own Documents tab, which is where whoever saved it will
+   *  look for it. */
+  requestId: number;
+  companyId: number | null;
+  requestLabel: string | null;
 }) {
   const inbound = message.direction === "inbound";
   const [open, setOpen] = useState(defaultOpen);
@@ -320,7 +350,13 @@ function MessageCard({
           {visible.length > 0 && (
             <ul className="mt-3 space-y-1.5 border-t border-border/60 pt-3">
               {visible.map((attachment) => (
-                <AttachmentRow key={attachment.id} attachment={attachment} />
+                <AttachmentRow
+                  key={attachment.id}
+                  attachment={attachment}
+                  requestId={requestId}
+                  companyId={companyId}
+                  requestLabel={requestLabel}
+                />
               ))}
             </ul>
           )}
@@ -341,8 +377,34 @@ function MessageCard({
   );
 }
 
-function AttachmentRow({ attachment }: { attachment: MailAttachment }) {
+/**
+ * One attachment on a supplier conversation, with the three things a person
+ * actually wants to do with it spelled out.
+ *
+ * It used to be the filename and a download glyph. "I can only download it" was
+ * the complaint, and it was fair: looking at a quotation before deciding what
+ * to do with it is the common case, and keeping a copy out of Gmail is a
+ * different decision again. Three named buttons, not a row of icons.
+ *
+ * Inbound attachments are filed into the library automatically as the reply
+ * syncs, so most of these carry a Filed badge and no Save button — the badge
+ * links to the copy that is ours. Save is offered for the rest: our own
+ * outbound attachments, and anything whose automatic filing did not take.
+ */
+function AttachmentRow({
+  attachment,
+  companyId,
+  requestId,
+  requestLabel,
+}: {
+  attachment: MailAttachment;
+  companyId: number | null;
+  requestId: number | null;
+  requestLabel: string | null;
+}) {
   const [downloading, setDownloading] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const download = async () => {
     setDownloading(true);
@@ -367,26 +429,105 @@ function AttachmentRow({ attachment }: { attachment: MailAttachment }) {
   };
 
   return (
-    <li className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={download}
-        disabled={downloading}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-secondary/60 disabled:opacity-60"
-      >
-        {downloading ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-        ) : (
-          <Download className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
+    <li className="rounded-lg border border-border bg-card p-2">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {attachment.filename}
         </span>
         <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
           {formatSize(attachment.size_bytes)}
         </span>
-      </button>
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        {isPreviewable(attachment.mime_type) && (
+          <ActionButton
+            icon={Eye}
+            label="Preview"
+            onClick={() => setPreviewing(true)}
+          />
+        )}
+        <ActionButton
+          icon={downloading ? Loader2 : Download}
+          label="Download"
+          spinning={downloading}
+          disabled={downloading}
+          onClick={download}
+        />
+
+        {attachment.document_id !== null ? (
+          <Link
+            href={`/documents?q=${encodeURIComponent(attachment.filename)}`}
+            title="Filed in Documents — this copy is ours, and survives the email being deleted"
+            className="inline-flex items-center gap-1.5 rounded-md bg-tile-green-bg px-2 py-1 text-[11px] font-bold text-tile-green transition-opacity hover:opacity-80"
+          >
+            <FileCheck className="size-3" strokeWidth={2.4} />
+            In Documents
+          </Link>
+        ) : (
+          <ActionButton
+            icon={FolderPlus}
+            label="Add to Documents"
+            onClick={() => setSaving(true)}
+          />
+        )}
+      </div>
+
+      {previewing && (
+        <FilePreview
+          title={attachment.filename}
+          subtitle="Email attachment"
+          cacheKey={String(attachment.id)}
+          load={() => mailAttachmentPreviewUrl(attachment.id)}
+          onDownload={download}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
+
+      {saving && (
+        <AddToDocumentsDialog
+          source={{ kind: "synced", attachmentId: attachment.id }}
+          filename={attachment.filename}
+          companyId={companyId}
+          sourcingRequestId={requestId}
+          sourcingRequestLabel={requestLabel}
+          onClose={() => setSaving(false)}
+        />
+      )}
     </li>
+  );
+}
+
+function ActionButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled = false,
+  spinning = false,
+}: {
+  icon: typeof Download;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  spinning?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-semibold text-foreground shadow-xs transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-60"
+    >
+      <Icon
+        className={cn(
+          "size-3 text-muted-foreground",
+          spinning && "animate-spin",
+        )}
+        strokeWidth={2.2}
+      />
+      {label}
+    </button>
   );
 }
 
