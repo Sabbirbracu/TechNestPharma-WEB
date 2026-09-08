@@ -42,13 +42,16 @@ export type StageStyle = {
   statuses: SourcingStatus[];
   /** Icon tile: tinted square. */
   tile: string;
-  /** The caption under the count — what these requests actually are, not a
-   *  generic "Request(s)" repeated on every card. */
+  /** The caption beside the count.
+   *
+   *  Every card counts the same unit — **enquiries whose status is this
+   *  stage** — and the caption now says so on all five. It used to name what
+   *  the reader might assume was being counted ("New replies", "Quotes
+   *  received"), which was wrong in both places and by a wide margin: 44
+   *  enquiries sat at Replied while only 2 had a reply on file, and Quotations
+   *  read 168 against 280 quotations actually stored. The stage title above
+   *  carries the meaning; the caption only has to name the unit, truthfully. */
   countLabel: string;
-  /** Colours for the "waiting on you" badge, or null on the stages where
-   *  waiting is not a meaningful state. The number itself always comes from
-   *  the stage's own column, so it can never exceed the count beside it. */
-  badge: string | null;
 };
 
 export const PIPELINE_STAGES: StageStyle[] = [
@@ -58,9 +61,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
     icon: PenLine,
     statuses: ["draft"],
     tile: "bg-tile-blue-bg text-tile-blue ring-tile-blue/15",
-    countLabel: "Draft enquiries",
-    // Nobody is waiting on a draft — it has never left the building.
-    badge: null,
+    countLabel: "enquiries",
   },
   {
     key: "sent",
@@ -68,10 +69,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
     icon: Send,
     statuses: ["sent"],
     tile: "bg-tile-blue-bg text-tile-blue ring-tile-blue/15",
-    countLabel: "Awaiting reply",
-    // `sent` means we wrote last by definition, so its awaiting count is
-    // always zero. A badge here would be dead pixels.
-    badge: null,
+    countLabel: "enquiries",
   },
   {
     key: "replied",
@@ -79,8 +77,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
     icon: MessageSquare,
     statuses: ["replied"],
     tile: "bg-tile-green-bg text-tile-green ring-tile-green/15",
-    countLabel: "New replies",
-    badge: "bg-success text-success-foreground",
+    countLabel: "enquiries",
   },
   {
     key: "quotation_received",
@@ -88,8 +85,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
     icon: FileText,
     statuses: ["quotation_received"],
     tile: "bg-tile-purple-bg text-tile-purple ring-tile-purple/15",
-    countLabel: "Quotes received",
-    badge: "bg-tile-purple text-primary-foreground",
+    countLabel: "enquiries",
   },
   {
     key: "negotiating",
@@ -97,8 +93,7 @@ export const PIPELINE_STAGES: StageStyle[] = [
     icon: Handshake,
     statuses: ["negotiating"],
     tile: "bg-tile-amber-bg text-tile-amber ring-tile-amber/15",
-    countLabel: "In negotiation",
-    badge: "bg-tile-amber text-warning-foreground",
+    countLabel: "enquiries",
   },
 ];
 

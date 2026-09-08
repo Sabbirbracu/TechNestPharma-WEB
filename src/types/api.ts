@@ -16,6 +16,7 @@ import type {
   MaterialType,
   PackagingType,
   SampleStatus,
+  SampleTestResult,
   SterilizationMethod,
   UserRole,
 } from "./domain";
@@ -1746,6 +1747,11 @@ export type InboxAttachment = {
   mime_type: string | null;
   size_bytes: number | null;
   is_inline: boolean;
+  /** Set when this file is already in the library, so the reader says so
+   *  rather than offering to file it twice. Resolved from the synced side of
+   *  an ERP-started thread; null on a thread the ERP never started, where
+   *  nothing has been filed. */
+  document_id: number | null;
 };
 
 export type InboxThreadMessage = {
@@ -1978,4 +1984,119 @@ export type DocumentListParams = ListParams & {
   supplier_product_id?: number;
   sample_request_id?: number;
   sourcing_request_id?: number;
+};
+
+/* --- Samples (FR-SAMP) ----------------------------------------------------
+ *
+ * A sample is one physical parcel: this supplier's version of this product,
+ * sent here to be tested. The screen is a chase list first and a record
+ * second, which is why the list row carries the dates somebody acts on rather
+ * than making them a detail click.
+ * ------------------------------------------------------------------------ */
+
+/** `SampleStatus`, `SampleTestResult` and the transition map already live in
+ *  `domain.ts` — mirrored there from `enums.SAMPLE_TRANSITIONS`, which is what
+ *  lets the UI offer only the moves the server will accept instead of
+ *  discovering them by being refused.
+ *
+ *  The board's five columns. `promised` and `shipped` are chase detail inside
+ *  Requested, not places a sample sits. */
+export type SampleStage =
+  | "requested"
+  | "received"
+  | "under_test"
+  | "approved"
+  | "rejected";
+
+export type SampleStatusEvent = {
+  id: number;
+  from_status: SampleStatus | null;
+  to_status: SampleStatus;
+  changed_at: string;
+  changed_by: number | null;
+  note: string | null;
+};
+
+export type SampleRequestListItem = {
+  id: number;
+  status: SampleStatus;
+  product: { id: number; name_en: string; cas_number: string | null } | null;
+  company: { id: number; name_en: string } | null;
+  /** Numeric string from the API — mg/g/kg/ml/L live in `quantity_unit`. */
+  quantity_value: string | null;
+  quantity_unit: string | null;
+  requested_on: string;
+  promised_on: string | null;
+  shipped_on: string | null;
+  received_on: string | null;
+  courier: string | null;
+  tracking_no: string | null;
+  test_result: SampleTestResult | null;
+  purpose: string | null;
+  /** Promised before today and still not here. Derived server-side so four
+   *  components cannot disagree about what "late" means. */
+  is_overdue: boolean;
+  age_days: number;
+};
+
+export type SampleRequestDetail = SampleRequestListItem & {
+  contact_person_id: number | null;
+  notes: string | null;
+  history: SampleStatusEvent[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type SampleListParams = ListParams & {
+  stage?: SampleStage;
+  status?: SampleStatus;
+  company_id?: number;
+  overdue?: boolean;
+};
+
+export type SampleCreateInput = {
+  supplier_product_id: number;
+  contact_person_id?: number | null;
+  quantity_value?: string | null;
+  quantity_unit?: string | null;
+  promised_on?: string | null;
+  purpose?: string | null;
+  notes?: string | null;
+};
+
+export type SampleUpdateInput = Partial<
+  Omit<SampleCreateInput, "supplier_product_id">
+> & {
+  shipped_on?: string | null;
+  received_on?: string | null;
+  courier?: string | null;
+  tracking_no?: string | null;
+  test_result?: SampleTestResult | null;
+};
+
+/** A status change and the facts that caused it, in one request. Splitting
+ *  them is how the evidence stops being entered. */
+export type SampleStatusChangeInput = {
+  to_status: SampleStatus;
+  note?: string | null;
+  promised_on?: string | null;
+  shipped_on?: string | null;
+  received_on?: string | null;
+  courier?: string | null;
+  tracking_no?: string | null;
+  test_result?: SampleTestResult | null;
+};
+
+export type SampleStageCount = {
+  stage: SampleStage;
+  label: string;
+  count: number;
+  overdue: number;
+};
+
+export type SamplePipeline = {
+  stages: SampleStageCount[];
+  total: number;
+  overdue: number;
+  awaiting_result: number;
 };

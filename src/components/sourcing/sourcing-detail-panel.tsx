@@ -10,6 +10,7 @@ import {
   Bookmark,
   ChevronDown,
   Download,
+  Eye,
   FileText,
   Loader2,
   MessageCircle,
@@ -19,6 +20,7 @@ import {
   Paperclip,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -30,13 +32,20 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
+  documentPreviewUrl,
   downloadDocument,
   useChangeSourcingStatus,
+  useDeleteDocument,
   useDocuments,
   useMailboxSettings,
   useSourcingRequest,
 } from "@/lib/queries";
 import { docTypeMeta, formatBytes, typeChip } from "@/components/documents/doc-taxonomy";
+import {
+  FilePreview,
+  isPreviewable,
+} from "@/components/documents/file-preview";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EnquiryDialog } from "@/components/enquiry/enquiry-dialog";
 import { ComposeDialog } from "@/components/inbox/compose-dialog";
 import {
@@ -57,6 +66,7 @@ import {
 } from "./sourcing-taxonomy";
 import type {
   Communication,
+  DocumentItem,
   Quotation,
   SourcingRequestDetail,
   SourcingRequestListItem,
@@ -226,6 +236,7 @@ export function SourcingDetailPanel({
                   onClick={() => setTab(entry.key)}
                 >
                   {entry.label}
+                  {entry.key === "documents" && <DocumentCount requestId={request.id} />}
                   {entry.key === "quotations" &&
                     ` (${detail?.quotations.length ?? request.quotation_count})`}
                   {entry.key === "communications" &&
@@ -970,11 +981,24 @@ function QuoteCell({ children }: { children: React.ReactNode }) {
  * press Save on each one. Anything filed against the enquiry by hand shows up
  * in the same list, because this reads the library rather than the mailbox.
  */
+/** The count beside the Documents tab. Its own component so the panel does not
+ *  re-render on every documents refetch, and so the tab reads "Documents" —
+ *  not "Documents (0)" — while the first load is still in flight. */
+function DocumentCount({ requestId }: { requestId: number }) {
+  const { data } = useDocuments(documentParams(requestId));
+  if (!data) return null;
+  return <> ({data.total})</>;
+}
+
+/** One query for the tab's count and its contents. Both call `useDocuments`
+ *  with these exact params, so React Query serves them from a single cache
+ *  entry rather than fetching the list twice. */
+function documentParams(requestId: number) {
+  return { sourcing_request_id: requestId, size: 50 } as const;
+}
+
 function Documents({ requestId }: { requestId: number }) {
-  const { data, isPending, error } = useDocuments({
-    sourcing_request_id: requestId,
-    size: 50,
-  });
+  const { data, isPending, error } = useDocuments(documentParams(requestId));
   const documents = data?.items ?? [];
 
   if (isPending) {
@@ -1010,90 +1034,176 @@ function Documents({ requestId }: { requestId: number }) {
 
   return (
     <ul className="space-y-2.5">
-      {documents.map((document) => {
-        const meta = docTypeMeta(document.doc_type);
-        const inbound = document.mail_direction === "inbound";
-        const outbound = document.mail_direction === "outbound";
-
-        return (
-          <li
-            key={document.id}
-            className="flex items-center gap-3 rounded-xl border border-border/60 p-3.5 transition-colors hover:border-border"
-          >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <FileText className="size-5" strokeWidth={2} />
-            </span>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="min-w-0 truncate text-sm font-bold text-foreground">
-                  {document.title}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
-                    typeChip(document.doc_type),
-                  )}
-                >
-                  {meta.label}
-                </span>
-              </div>
-
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                {/* The label the tab exists for. Uploaded-by-hand documents get
-                    the uploader's name instead — same question, different
-                    answer. */}
-                {inbound || outbound ? (
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset",
-                      inbound
-                        ? "bg-tile-green-bg text-tile-green ring-tile-green/20"
-                        : "bg-tile-blue-bg text-tile-blue ring-tile-blue/20",
-                    )}
-                  >
-                    {inbound ? (
-                      <ArrowDownLeft className="size-3" strokeWidth={2.5} />
-                    ) : (
-                      <ArrowUpRight className="size-3" strokeWidth={2.5} />
-                    )}
-                    {inbound ? "From supplier" : "Sent by us"}
-                  </span>
-                ) : document.uploaded_by ? (
-                  <span className="text-[11px] font-semibold text-muted-foreground">
-                    Added by {document.uploaded_by}
-                  </span>
-                ) : null}
-
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  {formatBytes(document.size_bytes)} ·{" "}
-                  {formatDateTime(document.created_at)}
-                </span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              aria-label={`Download ${document.title}`}
-              onClick={async () => {
-                try {
-                  await downloadDocument(document.id, document.title);
-                } catch (downloadError) {
-                  toast.error(
-                    downloadError instanceof Error
-                      ? downloadError.message
-                      : "Could not download it.",
-                  );
-                }
-              }}
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Download className="size-[18px]" strokeWidth={2} />
-            </button>
-          </li>
-        );
-      })}
+      {documents.map((document) => (
+        <DocumentRow key={document.id} document={document} />
+      ))}
     </ul>
+  );
+}
+
+function DocumentRow({ document }: { document: DocumentItem }) {
+  const [previewing, setPreviewing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const deleteDocument = useDeleteDocument();
+
+  const meta = docTypeMeta(document.doc_type);
+  const inbound = document.mail_direction === "inbound";
+  const outbound = document.mail_direction === "outbound";
+
+  async function download() {
+    try {
+      await downloadDocument(document.id, document.title);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not download it.",
+      );
+    }
+  }
+
+  return (
+    <li className="rounded-xl border border-border/60 p-3.5 transition-colors hover:border-border">
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <FileText className="size-5" strokeWidth={2} />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 truncate text-sm font-bold text-foreground">
+              {document.title}
+            </span>
+            <span
+              className={cn(
+                "shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset",
+                typeChip(document.doc_type),
+              )}
+            >
+              {meta.label}
+            </span>
+          </div>
+
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {/* The label the tab exists for. Uploaded-by-hand documents get
+                the uploader's name instead — same question, different
+                answer. */}
+            {inbound || outbound ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset",
+                  inbound
+                    ? "bg-tile-green-bg text-tile-green ring-tile-green/20"
+                    : "bg-tile-blue-bg text-tile-blue ring-tile-blue/20",
+                )}
+              >
+                {inbound ? (
+                  <ArrowDownLeft className="size-3" strokeWidth={2.5} />
+                ) : (
+                  <ArrowUpRight className="size-3" strokeWidth={2.5} />
+                )}
+                {inbound ? "From supplier" : "Sent by us"}
+              </span>
+            ) : document.uploaded_by ? (
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                Added by {document.uploaded_by}
+              </span>
+            ) : null}
+
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {formatBytes(document.size_bytes)} ·{" "}
+              {formatDateTime(document.created_at)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-border/50 pt-2.5">
+        {isPreviewable(document.mime_type) && (
+          <DocumentAction
+            icon={Eye}
+            label="Preview"
+            onClick={() => setPreviewing(true)}
+          />
+        )}
+        <DocumentAction icon={Download} label="Download" onClick={download} />
+        <DocumentAction
+          icon={Trash2}
+          label="Delete"
+          destructive
+          onClick={() => setConfirming(true)}
+        />
+      </div>
+
+      {previewing && (
+        <FilePreview
+          title={document.title}
+          subtitle={`${meta.label} · ${formatBytes(document.size_bytes)}`}
+          cacheKey={`${document.id}:${document.updated_at}`}
+          load={() => documentPreviewUrl(document.id, document.updated_at)}
+          onDownload={download}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title="Delete this document?"
+          description={
+            <>
+              <span className="font-semibold text-foreground">
+                {document.title}
+              </span>{" "}
+              will be removed from the library everywhere, not just from this
+              enquiry. If it arrived as an email attachment the message keeps
+              its copy, so it can be filed again from the conversation.
+            </>
+          }
+          confirmLabel="Delete"
+          busy={deleteDocument.isPending}
+          onConfirm={() =>
+            deleteDocument.mutate(document.id, {
+              onSuccess: () => toast.success("Document deleted."),
+              onError: () => toast.error("Could not delete it."),
+              onSettled: () => setConfirming(false),
+            })
+          }
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </li>
+  );
+}
+
+function DocumentAction({
+  icon: Icon,
+  label,
+  onClick,
+  destructive = false,
+}: {
+  icon: typeof Download;
+  label: string;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold shadow-xs transition-colors",
+        destructive
+          ? "border-border bg-card text-destructive hover:border-destructive/40 hover:bg-destructive/5"
+          : "border-border bg-card text-foreground hover:border-primary/40 hover:bg-accent",
+      )}
+    >
+      <Icon
+        className={cn(
+          "size-3",
+          destructive ? "text-destructive" : "text-muted-foreground",
+        )}
+        strokeWidth={2.2}
+      />
+      {label}
+    </button>
   );
 }
 

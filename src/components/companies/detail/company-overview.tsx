@@ -168,6 +168,9 @@ function QuickActions({
   );
 }
 
+
+
+
 function QuickAction({
   icon: Icon,
   label,
@@ -189,7 +192,7 @@ function QuickAction({
       onClick={onClick}
       disabled={busy}
       className={cn(
-        "flex h-14 items-center justify-center gap-2.5 rounded-xl px-4 text-sm font-semibold transition-all active:scale-[0.98]",
+        "flex h-14 items-center justify-center gap-2.5 rounded-xl px-2 text-sm font-semibold transition-all active:scale-[0.98]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success/40 disabled:pointer-events-none disabled:opacity-60",
         tone === "solid"
           ? "bg-success text-success-foreground shadow-sm hover:bg-success/90 hover:shadow-md"

@@ -265,7 +265,7 @@ export function SourcingFilters({
           <AttentionChip
             filter="awaiting_reply"
             count={attention.awaiting_reply}
-            label={(n) => `${n} supplier ${n === 1 ? "reply" : "replies"}`}
+            label={(n) => `${n} awaiting your reply`}
             icon={MessageSquare}
             tone="bg-tile-green-bg text-tile-green ring-tile-green/20"
             activeTone="bg-tile-green text-primary-foreground ring-tile-green"
@@ -285,7 +285,7 @@ export function SourcingFilters({
           <AttentionChip
             filter="unreviewed_quotations"
             count={attention.unreviewed_quotations}
-            label={(n) => `${n} quotation${n === 1 ? "" : "s"} to review`}
+            label={(n) => `${n} to review`}
             icon={FileText}
             tone="bg-tile-purple-bg text-tile-purple ring-tile-purple/20"
             activeTone="bg-tile-purple text-primary-foreground ring-tile-purple"

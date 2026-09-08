@@ -73,6 +73,14 @@ export function useNotificationStream(enabled: boolean) {
         case "status_changed":
           client.invalidateQueries({ queryKey: keys.sourcing.all });
           break;
+        case "notice_fetched":
+        case "fetch_failed":
+          // A scheduled scrape wrote notices and moved the source's status
+          // band. Without this the board behind the toast keeps showing the
+          // count from before the fetch until somebody reloads — the same
+          // cosmetic-stream problem the note above describes.
+          client.invalidateQueries({ queryKey: keys.tenderNotices.all });
+          break;
         default:
           // An unknown kind from a newer server: refresh nothing rather than
           // guess. The bell above still updates.

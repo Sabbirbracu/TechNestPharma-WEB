@@ -43,6 +43,7 @@ export function AddToDocumentsDialog({
   companyName,
   sourcingRequestId,
   sourcingRequestLabel,
+  onSaved,
   onClose,
 }: {
   source: AttachmentSource;
@@ -59,6 +60,9 @@ export function AddToDocumentsDialog({
   sourcingRequestId?: number | null;
   /** What to call that enquiry — its product, when the caller knows it. */
   sourcingRequestLabel?: string | null;
+  /** Fired on a successful save, so a caller reading its thread live from
+   *  Gmail can show the file as filed without re-fetching to learn it. */
+  onSaved?: () => void;
   onClose: () => void;
 }) {
   const [metadata, setMetadata] = useState<DocumentMetadata>(() => {
@@ -184,6 +188,7 @@ export function AddToDocumentsDialog({
                     ? "Already in the library — filed, not stored twice."
                     : "Document added.",
                 );
+                onSaved?.();
                 onClose();
               } catch (error) {
                 toast.error(

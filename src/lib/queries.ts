@@ -41,6 +41,13 @@ import type {
   ExtractionResult,
   InboxBucket,
   InboxPage,
+  SampleCreateInput,
+  SampleListParams,
+  SamplePipeline,
+  SampleRequestDetail,
+  SampleRequestListItem,
+  SampleStatusChangeInput,
+  SampleUpdateInput,
   SentMailParams,
   SentMessage,
   InboxThread,
@@ -223,6 +230,12 @@ export const keys = {
     sentAll: ["mailbox", "sent"] as const,
     sent: (params: SentMailParams) => ["mailbox", "sent", params] as const,
     senderRules: ["mailbox", "sender-rules"] as const,
+  },
+  samples: {
+    all: ["samples"] as const,
+    list: (params: SampleListParams) => ["samples", "list", params] as const,
+    detail: (id: number) => ["samples", "detail", id] as const,
+    pipeline: ["samples", "pipeline"] as const,
   },
   sourcing: {
     all: ["sourcing"] as const,
@@ -2502,4 +2515,98 @@ export async function downloadInboxAttachment(
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/* --- Samples (FR-SAMP) --------------------------------------------------- */
+
+/**
+ * The chase list. Ordered overdue-first by the server, so the component does
+ * not re-sort and disagree with the count on the board above it.
+ */
+export function useSamples(params: SampleListParams) {
+  return useQuery({
+    queryKey: keys.samples.list(params),
+    queryFn: () =>
+      apiFetch<Page<SampleRequestListItem>>(`/samples${toQueryString(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSample(id: number | null) {
+  return useQuery({
+    queryKey: keys.samples.detail(id ?? 0),
+    queryFn: () => apiFetch<SampleRequestDetail>(`/samples/${id}`),
+    enabled: id !== null,
+  });
+}
+
+export function useSamplePipeline() {
+  return useQuery({
+    queryKey: keys.samples.pipeline,
+    queryFn: () => apiFetch<SamplePipeline>("/samples/pipeline"),
+  });
+}
+
+export function useCreateSample() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SampleCreateInput) =>
+      apiFetch<SampleRequestDetail>("/samples", { method: "POST", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.samples.all });
+    },
+  });
+}
+
+export function useUpdateSample(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SampleUpdateInput) =>
+      apiFetch<SampleRequestDetail>(`/samples/${id}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.samples.all });
+    },
+  });
+}
+
+/**
+ * Move a sample along, carrying whatever moved it.
+ *
+ * One mutation rather than a status call plus an edit: a sample marked Shipped
+ * with no courier and no tracking number says less than the email it came
+ * from, and a second form is where that detail goes to be forgotten.
+ */
+export function useChangeSampleStatus(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SampleStatusChangeInput) =>
+      apiFetch<SampleRequestDetail>(`/samples/${id}/status`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.samples.all });
+    },
+    onError: (error) => {
+      // The server owns the state machine and refuses an illegal move with a
+      // sentence naming what *is* legal. Worth showing verbatim.
+      toast.error(
+        error instanceof ApiError ? error.message : "Could not move that sample.",
+      );
+    },
+  });
+}
+
+export function useDeleteSample() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<{ detail: string }>(`/samples/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.samples.all });
+    },
+  });
 }

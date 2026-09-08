@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Download,
   Eye,
+  FileCheck,
   Inbox as InboxIcon,
   Loader2,
   Mail,
@@ -961,9 +962,16 @@ function ThreadPanel({
 
         {/* Newest first, same as the sourcing thread view: what the reader came
             for is the latest message, not a scroll through their own sent mail
-            to reach it. */}
+            to reach it.
+
+            Three values have to agree for the marker dots to sit on the rail,
+            so they are kept on the Tailwind scale and stated together: rail at
+            `left-3` (12px, centre 12.5), card at `ml-8` (32px), dot at
+            `-left-6` (−24px, centre 13px). Half a pixel apart, which is
+            invisible. They were 21px apart before, which was not — every dot
+            floated off the line and out into the panel's padding. */}
         {messages.length > 0 && (
-          <div className="relative space-y-3 before:absolute before:bottom-6 before:left-[1.15rem] before:top-6 before:w-px before:bg-border/80">
+          <div className="relative space-y-3 before:absolute before:bottom-6 before:left-3 before:top-6 before:w-px before:bg-border/80">
             {messages.map((item, index) => (
               <MessageBubble
                 key={item.message_id}
@@ -1009,6 +1017,10 @@ function MessageBubble({
     partId: string;
     filename: string;
   } | null>(null);
+  // Filed during this session, before the server has been asked again. The
+  // thread is read live from Gmail, so refetching it to learn one boolean
+  // would spend a Gmail call on a fact the browser already knows.
+  const [justSaved, setJustSaved] = useState<ReadonlySet<string>>(new Set());
   const { reply, quoted } = splitQuotedReply(item.body);
   const files = item.attachments.filter((a) => !a.is_inline);
   const outbound = item.direction === "outbound";
@@ -1017,7 +1029,7 @@ function MessageBubble({
   return (
     <article
       className={cn(
-        "relative ml-3 rounded-2xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md",
+        "relative ml-8 rounded-2xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md",
         outbound
           ? "border-primary/25 bg-primary/[0.045]"
           : "border-border/80",
@@ -1026,7 +1038,7 @@ function MessageBubble({
       <span
         aria-hidden
         className={cn(
-          "absolute -left-[1.2rem] top-5 flex size-2.5 rounded-full ring-4 ring-secondary/[0.18]",
+          "absolute -left-6 top-5 flex size-2.5 rounded-full ring-4 ring-secondary/[0.18]",
           outbound ? "bg-tile-blue" : "bg-tile-green",
         )}
       />
@@ -1142,18 +1154,32 @@ function MessageBubble({
                 {/* The promotion out of Gmail and into the library. Deliberate
                     here, unlike a supplier reply on an enquiry, which is filed
                     automatically: the inbox is the client's whole mailbox and
-                    keeping all of it would fill the library with noise. */}
-                <AttachmentAction
-                  icon={FolderPlus}
-                  label="Save to Documents"
-                  priority="secondary"
-                  onClick={() =>
-                    setSaving({
-                      partId: attachment.part_id,
-                      filename: attachment.filename,
-                    })
-                  }
-                />
+                    keeping all of it would fill the library with noise.
+
+                    Once it is filed the button says so and stops being one.
+                    Offering to save a file that is already saved is an
+                    invitation to find out the hard way — the only feedback was
+                    the duplicate warning, after the fact. */}
+                {attachment.document_id !== null ||
+                justSaved.has(attachment.part_id) ? (
+                  <AttachmentAction
+                    icon={FileCheck}
+                    label="Already saved"
+                    priority="done"
+                  />
+                ) : (
+                  <AttachmentAction
+                    icon={FolderPlus}
+                    label="Save to Documents"
+                    priority="secondary"
+                    onClick={() =>
+                      setSaving({
+                        partId: attachment.part_id,
+                        filename: attachment.filename,
+                      })
+                    }
+                  />
+                )}
               </div>
             </li>
           ))}
@@ -1191,6 +1217,9 @@ function MessageBubble({
           companyId={companyId}
           companyName={companyName}
           sourcingRequestId={sourcingRequestId}
+          onSaved={() =>
+            setJustSaved((saved) => new Set(saved).add(saving.partId))
+          }
           onClose={() => setSaving(null)}
         />
       )}
@@ -1334,20 +1363,25 @@ function AttachmentAction({
 }: {
   icon: typeof Download;
   label: string;
-  onClick: () => void;
-  priority?: "primary" | "secondary" | "icon";
+  /** Omitted by "done", which is a state rather than an action. */
+  onClick?: () => void;
+  priority?: "primary" | "secondary" | "icon" | "done";
 }) {
+  const done = priority === "done";
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={done}
       aria-label={label}
-      title={label}
+      title={done ? "This file is already in the library" : label}
       className={cn(
         "inline-flex items-center justify-center gap-1.5 rounded-lg text-[11px] font-bold transition-colors",
         priority === "primary" && "bg-primary px-2.5 py-1.5 text-primary-foreground shadow-sm shadow-primary/20 hover:brightness-95",
         priority === "secondary" && "border border-border bg-card px-2.5 py-1.5 text-foreground shadow-xs hover:border-primary/40 hover:bg-accent",
         priority === "icon" && "size-7 border border-border bg-card text-muted-foreground shadow-xs hover:border-primary/40 hover:bg-accent hover:text-foreground",
+        // Not greyed out: this is a good outcome, not a disabled control.
+        done && "cursor-default border border-tile-green/25 bg-tile-green-bg px-2.5 py-1.5 text-tile-green",
       )}
     >
       <Icon className="size-3.5" strokeWidth={2.2} />
