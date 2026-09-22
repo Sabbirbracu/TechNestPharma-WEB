@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowRight, ArrowUp, FileText } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, FileText, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTenderStats } from "@/lib/queries";
 import {
@@ -11,7 +11,7 @@ import {
 import type { TenderDisplayStatus, TenderStatBucket } from "@/types/api";
 
 /**
- * The five stat tiles: total plus each display bucket. Every card's title,
+ * Four stat tiles (total, open, closing soon, cancelled) plus a notice tile. Every card's title,
  * number, and caption reserve the same height and the icon centers on the
  * number+caption pair rather than pinning to the card's top edge — the same
  * fix the Sourcing pipeline strip needed, for the same reason: a two-line
@@ -32,7 +32,7 @@ export function TenderStats({
 
   if (isPending) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      <div className="-mx-3 flex snap-x gap-3 overflow-x-auto px-3 pb-1 [scrollbar-width:none] max-sm:[&>*]:w-40 max-sm:[&>*]:shrink-0 max-sm:[&>*]:snap-start sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 xl:grid-cols-5 [&::-webkit-scrollbar]:hidden">
         {Array.from({ length: 5 }, (_, i) => (
           <div
             key={i}
@@ -46,7 +46,9 @@ export function TenderStats({
   if (!data) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+    // A swipeable row on a phone: five tiles in two columns would be three
+    // tall rows ending on a hole, pushing the list a full screen down.
+    <div className="-mx-3 flex snap-x gap-3 overflow-x-auto px-3 pb-1 [scrollbar-width:none] max-sm:[&>*]:w-40 max-sm:[&>*]:shrink-0 max-sm:[&>*]:snap-start sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 xl:grid-cols-5 [&::-webkit-scrollbar]:hidden">
       <StatCard
         label="Total Tenders"
         icon={FileText}
@@ -80,6 +82,29 @@ export function TenderStats({
           />
         );
       })}
+      <NoticeCard />
+    </div>
+  );
+}
+
+/** The fifth tile: a plain-language note, in Bangla, on what this page
+ *  lists — tenders confirmed from Tender Notices, or ones the buyer wants to
+ *  bid on. Client's wording request, 2026-09-21. */
+function NoticeCard() {
+  return (
+    <div
+      lang="bn"
+      className="relative flex h-full w-full flex-col gap-2 overflow-hidden rounded-2xl border border-tile-amber/30 bg-tile-amber-bg p-4 shadow-sm max-sm:!w-64"
+    >
+      <span aria-hidden className="absolute inset-x-0 top-0 h-0.75 bg-tile-amber" />
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-tile-amber">
+        <Info className="size-4 shrink-0" strokeWidth={2.25} />
+        নোটিশ
+      </p>
+      <p className="text-[13px] font-medium leading-relaxed text-foreground/85">
+        এখানে শুধু সেই টেন্ডারগুলো দেখানো হচ্ছে, যেগুলো আপনি টেন্ডার নোটিশ থেকে কনফার্ম
+        করেছেন অথবা যেগুলোতে আপনি অংশগ্রহণ করতে চান।
+      </p>
     </div>
   );
 }

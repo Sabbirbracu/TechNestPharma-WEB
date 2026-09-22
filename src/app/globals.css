@@ -61,8 +61,9 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
 
-  --font-sans: var(--font-montserrat);
-  --font-mono: var(--font-geist-mono);
+  /* Bangla sits behind each Latin face: used only for Bengali characters. */
+  --font-sans: var(--font-montserrat), var(--font-bangla);
+  --font-mono: var(--font-geist-mono), var(--font-bangla);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);

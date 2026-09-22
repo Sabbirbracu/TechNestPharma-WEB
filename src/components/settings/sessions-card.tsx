@@ -76,7 +76,7 @@ export function SessionsCard() {
               className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/20 px-3.5 py-3"
             >
               <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-bold break-words text-foreground">
                   {session.device}
                   {session.is_current && (
                     <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success ring-1 ring-inset ring-success/20">
@@ -84,7 +84,7 @@ export function SessionsCard() {
                     </span>
                   )}
                 </p>
-                <p className="mt-0.5 truncate text-[11px] font-medium text-muted-foreground">
+                <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">
                   {session.ip ? `${session.ip} · ` : ""}Signed in{" "}
                   {formatDateTime(session.created_at)}
                 </p>

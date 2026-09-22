@@ -27,11 +27,14 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:shrink-0 sm:items-center">
           {/* Contacts don't have their own import channel — the sheet importer
               already picks up contact rows off the supplier sheet, so this
               points at that real flow rather than a separate one. */}
-          <Link href="/imports" className={cn(buttonVariants({ variant: "outline" }))}>
+          <Link
+            href="/imports"
+            className={cn(buttonVariants({ variant: "outline" }), "w-full sm:w-44")}
+          >
             <Upload strokeWidth={2.25} />
             Import Contacts
           </Link>

@@ -173,18 +173,18 @@ export function DocumentsContent() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* The header lives here rather than in the server page so "Add Document"
           can open the upload panel below it — the button and the panel are one
           interaction, and splitting them across the boundary would mean routing
           a click through the URL. */}
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/12 dark:text-blue-300">
+        <div className="flex min-w-0 flex-1 basis-72 items-center gap-3.5">
+          <span className="hidden size-12 shrink-0 sm:flex items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/12 dark:text-blue-300">
             <FileText className="size-6" strokeWidth={2} />
           </span>
           <div className="min-w-0">
-            <h1 className="text-[26px] leading-tight font-bold tracking-tight text-foreground">
+            <h1 className="text-[22px] leading-tight font-bold tracking-tight text-foreground sm:text-[26px]">
               Documents &amp; Files
             </h1>
             <p className="mt-0.5 text-[13px] font-medium text-muted-foreground">
@@ -199,7 +199,7 @@ export function DocumentsContent() {
       <DocumentStatCards stats={stats.data} isPending={stats.isPending} />
 
       {uploading && (
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm sm:p-6">
+        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-bold text-foreground">Add documents</h2>
             <Button
@@ -261,7 +261,7 @@ export function DocumentsContent() {
         />
 
         {documents.length > 0 && (
-          <div className="border-t border-border/60 px-4 py-3">
+          <div className="border-t border-border/60 px-3 py-3 sm:px-4">
             <ResultsPagination
               page={page}
               pageCount={pageCount}
@@ -322,8 +322,8 @@ export function DocumentsContent() {
 /** The header's split action: upload here, or go and save one from the inbox. */
 function AddDocumentButton({ onUpload }: { onUpload: () => void }) {
   return (
-    <div className="flex items-stretch">
-      <Button onClick={onUpload} className="rounded-r-none">
+    <div className="flex w-full items-stretch sm:w-auto">
+      <Button onClick={onUpload} className="flex-1 rounded-r-none sm:flex-none">
         <Plus />
         Add Document
       </Button>
@@ -351,7 +351,7 @@ function AddDocumentButton({ onUpload }: { onUpload: () => void }) {
               Upload files
             </DropdownMenuItem>
             <Link
-              href="/inbox"
+              href="/email/inbox"
               role="menuitem"
               onClick={close}
               className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"

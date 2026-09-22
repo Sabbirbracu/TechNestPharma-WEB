@@ -120,14 +120,15 @@ export function FilePreview({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-0 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
+      {/* Edge to edge on a phone — every pixel goes to the document. */}
       <div
-        className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-2xl"
+        className="flex h-full w-full max-w-4xl flex-col overflow-hidden border-border/60 bg-card shadow-2xl sm:rounded-2xl sm:border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-foreground">{title}</p>
             {subtitle && (
@@ -138,9 +139,9 @@ export function FilePreview({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {onDownload && (
-              <Button variant="outline" size="sm" onClick={onDownload}>
+              <Button variant="outline" size="sm" onClick={onDownload} aria-label="Download">
                 <Download className="size-3.5" />
-                Download
+                <span className="hidden sm:inline">Download</span>
               </Button>
             )}
             <Button

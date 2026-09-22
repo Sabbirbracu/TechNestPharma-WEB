@@ -37,7 +37,7 @@ export function CategoryBreakdown() {
   const rows = data?.buckets.filter((bucket) => bucket.key !== "total") ?? [];
 
   return (
-    <Card className="flex flex-col p-5 sm:p-6">
+    <Card className="flex flex-col p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">

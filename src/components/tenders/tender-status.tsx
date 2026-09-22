@@ -171,7 +171,6 @@ export const DISPLAY_STATUS_CARD_ORDER: Exclude<
 >[] = [
   "open",
   "closing_soon",
-  "awarded",
   "cancelled",
 ];
 

@@ -5,11 +5,13 @@ import {
   FlaskConical,
   Gavel,
   ScanLine,
-  Handshake,
   Mails,
   Inbox,
+  Mail,
+  SendHorizontal,
   TestTube2,
   FileText,
+  LayoutTemplate,
   Search,
   Upload,
   Settings,
@@ -35,6 +37,12 @@ export type NavItem = {
    * half, so nobody clicks through to a 403.
    */
   ownerOnly?: boolean;
+  /**
+   * A sub-menu. The parent's `href` is the group's own prefix: it is what
+   * decides whether the group is open, and a click on the parent goes to the
+   * first child.
+   */
+  children?: NavItem[];
 };
 
 export type NavSection = {
@@ -61,7 +69,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Companies", href: "/companies", icon: Building2, fr: "FR-CO" },
       { label: "Contacts", href: "/contacts", icon: Users, fr: "FR-CON" },
       { label: "Products", href: "/products", icon: FlaskConical, fr: "FR-PROD" },
-      { label: "Offers", href: "/offers", icon: Handshake, fr: "FR-OFFER" },
     ],
   },
   {
@@ -76,14 +83,19 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: ScanLine,
         fr: "FR-TENDER",
       },
-      { label: "Tenders", href: "/tenders", icon: Gavel, fr: "FR-TENDER" },
-      { label: "Sourcing", href: "/sourcing", icon: Mails, fr: "FR-SRC" },
+      { label: "Active Tenders", href: "/tenders", icon: Gavel, fr: "FR-TENDER" },
+      { label: "Supplier Enquiries", href: "/supplier-enquiries", icon: Mails, fr: "FR-SRC" },
       {
-        label: "Inbox",
-        href: "/inbox",
-        icon: Inbox,
+        label: "Email",
+        href: "/email",
+        icon: Mail,
         fr: "FR-SRC",
         ownerOnly: true,
+        children: [
+          { label: "Inbox", href: "/email/inbox", icon: Inbox, fr: "FR-SRC", ownerOnly: true },
+          { label: "Sent", href: "/email/sent", icon: SendHorizontal, fr: "FR-SRC", ownerOnly: true },
+          { label: "Templates", href: "/email/templates", icon: LayoutTemplate, fr: "FR-SRC", ownerOnly: true },
+        ],
       },
     ],
   },
@@ -111,4 +123,6 @@ export const NAV_SECTIONS: NavSection[] = [
 ];
 
 /** Flat list, for any consumer that doesn't need the grouping. */
-export const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
+export const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) =>
+  s.items.flatMap((item) => [item, ...(item.children ?? [])]),
+);

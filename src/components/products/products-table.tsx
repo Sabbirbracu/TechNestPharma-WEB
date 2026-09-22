@@ -310,7 +310,7 @@ export function ProductsTable() {
 
       <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
         {/* Toolbar */}
-        <div className="flex flex-col gap-3 border-b border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex flex-col gap-3 border-b border-border/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <p className="text-sm font-medium text-muted-foreground">
             <span className="font-bold tabular-nums text-foreground">
               {total.toLocaleString()}
@@ -318,7 +318,9 @@ export function ProductsTable() {
             products found
           </p>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Phone: sort stretches, Export beside it. The view toggle is
+              desktop-only — below lg the list is always cards. */}
+          <div className="flex items-center gap-2.5 sm:flex-wrap">
             <Button
               type="button"
               variant="outline"
@@ -335,7 +337,7 @@ export function ProductsTable() {
               Export
             </Button>
 
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm">
+            <div className="hidden items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm lg:flex">
               <ViewToggle
                 active={view === "grid"}
                 onClick={() => setView("grid")}
@@ -350,15 +352,15 @@ export function ProductsTable() {
               />
             </div>
 
-            <label className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+            <label className="order-first flex min-w-0 flex-1 items-center gap-2 sm:order-none sm:flex-none">
+              <span className="hidden whitespace-nowrap text-xs font-medium text-muted-foreground sm:inline">
                 Sort by:
               </span>
               <select
                 value={sort}
                 onChange={(event) => changeSort(event.target.value as SortValue)}
                 aria-label="Sort products"
-                className="h-9 cursor-pointer rounded-lg border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                className="h-9 w-full min-w-0 cursor-pointer rounded-lg sm:w-auto border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
               >
                 {SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -413,6 +415,36 @@ export function ProductsTable() {
               isFetching && "pointer-events-none opacity-60",
             )}
           >
+            {/* Below lg: always cards, with their own select-all (the
+                table's lives in its header). */}
+            <div className="lg:hidden">
+              <label className="flex cursor-pointer items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+                <Checkbox
+                  checked={allOnPageSelected}
+                  indeterminate={selectedOnPage.length > 0 && !allOnPageSelected}
+                  onChange={toggleAllOnPage}
+                  aria-label={
+                    allOnPageSelected
+                      ? "Clear selection on this page"
+                      : "Select every product on this page"
+                  }
+                />
+                Select all on this page
+              </label>
+              <ProductCardView
+                rows={rows}
+                mode={mode}
+                selected={selected}
+                onToggleRow={toggleRow}
+                membershipsByRow={membershipsByRow}
+                onInspect={setInspecting}
+                onEdit={setEditing}
+                expanded={expanded}
+                onToggleExpanded={toggleExpanded}
+              />
+            </div>
+
+            <div className="hidden lg:block">
             {view === "list" ? (
               <ProductTableView
                 rows={rows}
@@ -445,12 +477,13 @@ export function ProductsTable() {
                 onToggleExpanded={toggleExpanded}
               />
             )}
+            </div>
           </div>
         )}
 
         {/* Footer */}
         {total > 0 && (
-          <div className="border-t border-border/60 px-4 py-4 sm:px-5">
+          <div className="border-t border-border/60 px-3 py-4 sm:px-5">
             <ResultsPagination
               page={data?.page ?? page}
               pageCount={data?.pages ?? 1}
@@ -818,7 +851,10 @@ function ProductCardView({
   const showVariants = mode !== "chemical";
 
   return (
-    <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
+    // minmax(0,1fr), not the implicit auto column: a full IUPAC name is one
+    // unbroken string, and an auto track grows to fit it — the card then ran
+    // off the right edge of a phone.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-3 sm:grid-cols-2 sm:gap-4 sm:p-5 xl:grid-cols-3">
       {rows.map((row) => {
         const category = primaryCategory(row.material_type, row.is_packaging);
         const Icon = category.icon;
@@ -830,7 +866,7 @@ function ProductCardView({
           <div
             key={row.id}
             className={cn(
-              "flex flex-col gap-3 rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
+              "flex min-w-0 flex-col gap-3 rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
               isSelected
                 ? "border-primary/40 bg-primary/[0.04] shadow-sm"
                 : "border-border/60 bg-card",
@@ -855,7 +891,9 @@ function ProductCardView({
                 <button
                   type="button"
                   onClick={() => onInspect(row)}
-                  className="block w-full truncate text-left text-sm font-bold text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  // Two lines below lg, where there is no table to fall back
+                  // on for a long IUPAC name; one line in the desktop grid.
+                  className="line-clamp-2 w-full text-left [overflow-wrap:anywhere] text-sm font-bold leading-snug text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 lg:truncate"
                   title={row.name_en}
                 >
                   {row.name_en}
@@ -1489,15 +1527,6 @@ function RowMenu({
             <SearchIcon />
             Find suppliers
           </Link>
-          <Link
-            href={`/offers?product_id=${row.id}`}
-            role="menuitem"
-            onClick={close}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
-          >
-            <Building2 />
-            View offers
-          </Link>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
@@ -1557,7 +1586,7 @@ function BulkBar({
   deleting: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-5 py-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-4 py-3 sm:px-5">
       <p className="text-sm font-semibold text-foreground">
         <span className="tabular-nums">{count}</span> product
         {count === 1 ? "" : "s"} selected
@@ -1576,7 +1605,7 @@ function BulkBar({
           ) : (
             <Download strokeWidth={2.25} />
           )}
-          Export selected
+          Export<span className="hidden sm:inline"> selected</span>
         </Button>
         <Button
           type="button"
@@ -1591,7 +1620,7 @@ function BulkBar({
           ) : (
             <Trash2 strokeWidth={2.25} />
           )}
-          Delete selected
+          Delete<span className="hidden sm:inline"> selected</span>
         </Button>
         <Button
           type="button"

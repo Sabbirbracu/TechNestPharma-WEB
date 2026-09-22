@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
   ArrowLeft,
   CalendarCheck,
   CalendarClock,
@@ -49,7 +48,9 @@ import {
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { ItemNameCheckDialog } from "./item-name-check-dialog";
+import { OcrGuideline } from "./notice-guidelines";
 import { ProductSearchDialog } from "./product-search-dialog";
+import { TenderName } from "./tender-name";
 import {
   MAPPING_STATUS_LABEL,
   MAPPING_STATUS_STYLE,
@@ -182,48 +183,50 @@ function TenderHeader({
     <header className="space-y-3">
       <Link
         href={`/tender-notices/${noticeId}`}
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+        className="inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
       >
-        <ArrowLeft className="size-3.5" />
-        {noticeTitle}
+        <ArrowLeft className="size-3.5 shrink-0" />
+        <span className="truncate">{noticeTitle}</span>
       </Link>
 
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Which authority's tender this is — the reference number alone does
-            not say, and its neighbours in the notice differ only by a serial. */}
-        <BuyerBadge
-          buyerName={tender.buyer_name}
-          className="rounded-lg px-2 py-1 text-sm"
-        />
-        <h1 className="font-mono text-2xl font-bold tracking-tight text-foreground">
-          {tender.reference_no ?? tender.name}
-        </h1>
-        {live && (
-          <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-bold text-success ring-1 ring-inset ring-success/20">
-            Live on tender board
+      <div className="space-y-1.5">
+        <TenderName tender={tender} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Which authority's tender this is — the reference number alone
+              does not say, and its neighbours differ only by a serial. */}
+          <BuyerBadge buyerName={tender.buyer_name} />
+          <span className="break-all font-mono text-sm font-bold text-muted-foreground">
+            {tender.reference_no ?? "No reference number"}
           </span>
-        )}
+          {live && (
+            <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-bold text-success ring-1 ring-inset ring-success/20">
+              Live on tender board
+            </span>
+          )}
+        </div>
       </div>
 
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
         {facts.map(({ label, value, icon: Icon, tone }) => (
           <div
             key={label}
-            className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3.5 transition hover:border-border hover:shadow-sm"
+            className="flex min-w-0 flex-col items-start gap-2 rounded-xl border border-border/60 bg-card p-3 transition hover:border-border hover:shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3.5"
           >
             <span
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
+                "flex size-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset sm:size-10 sm:rounded-xl",
                 tone,
               )}
             >
               <Icon className="size-[18px]" strokeWidth={2} />
             </span>
-            <div className="min-w-0">
+            <div className="min-w-0 max-w-full">
               <dt className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                 {label}
               </dt>
-              <dd className="mt-0.5 truncate text-sm font-bold text-foreground">
+              {/* Wraps on a phone: a half-width card would cut the schedule
+                  cost's "(≈ USD …)" off mid-figure. */}
+              <dd className="mt-0.5 break-words text-sm font-bold text-foreground sm:truncate">
                 {value || "—"}
               </dd>
             </div>
@@ -231,18 +234,7 @@ function TenderHeader({
         ))}
       </dl>
 
-      {ocr && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-[11px] font-medium leading-relaxed text-warning-foreground"
-        >
-          <AlertTriangle className="mt-px size-3.5 shrink-0" />
-          <span>
-            This notice was read by OCR, so every figure above is a guess rather
-            than a read. Check them against the document before confirming.
-          </span>
-        </div>
-      )}
+      {ocr && <OcrGuideline />}
     </header>
   );
 }
@@ -274,15 +266,17 @@ function TenderItems({
         onClose={() => setChecking(false)}
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-card p-4">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h3 className="text-base font-bold text-success">
+            <h3 className="min-w-0 break-words text-base font-bold text-success">
               Tender:{" "}
               <span className="font-mono">
                 {tender.reference_no ?? tender.name}
               </span>
             </h3>
-            <span className="text-sm font-semibold text-muted-foreground">
+            {/* On a phone the count moves to the line below — beside a long
+                reference it wrapped onto a line of its own. */}
+            <span className="hidden text-sm font-semibold text-muted-foreground sm:inline">
               · {tender.item_count} item{tender.item_count === 1 ? "" : "s"}
             </span>
             {/* "Verified" is derived, not stored: every line confirmed or
@@ -295,11 +289,16 @@ function TenderItems({
             )}
           </div>
           <p className="mt-0.5 text-xs font-medium text-muted-foreground">
+            <span className="sm:hidden">
+              {tender.item_count} item{tender.item_count === 1 ? "" : "s"} ·{" "}
+            </span>
             {tender.mapped_count} settled · {tender.selected_supplier_count}{" "}
             supplier{tender.selected_supplier_count === 1 ? "" : "s"} ticked
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* A 2×2 grid on a phone: the two checks on top, the two commits
+            below, each a full half-width target. */}
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
           {/* First in the row because it is the first thing to do: every
               other button here acts on names nobody has checked yet. */}
           <Button
@@ -310,7 +309,8 @@ function TenderItems({
             title="Read the extracted item names beside the notice they came from"
           >
             <ScanSearch />
-            Check Names vs Doc
+            <span className="sm:hidden">Check names</span>
+            <span className="hidden sm:inline">Check Names vs Doc</span>
           </Button>
           <Button
             type="button"
@@ -351,7 +351,7 @@ function TenderItems({
             ) : (
               <Sparkles />
             )}
-            Map All &amp; Continue
+            Map All<span className="hidden sm:inline"> &amp; Continue</span>
           </Button>
           {/* Per-tender confirm. A notice's six tenders are reviewed at
               different speeds, so this promotes one without waiting for the
@@ -384,12 +384,23 @@ function TenderItems({
             ) : (
               <Check />
             )}
-            {live ? "Re-sync Suppliers" : "Confirm This Tender"}
+            {live ? (
+              <>Re-sync<span className="hidden sm:inline"> Suppliers</span></>
+            ) : (
+              <>Confirm<span className="hidden sm:inline"> This Tender</span></>
+            )}
           </Button>
         </div>
       </div>
 
-      <div className="overflow-x-auto bg-card">
+      {/* Below lg the eight columns (1040px) can't fit: one card per line. */}
+      <ul className="divide-y divide-border/50 bg-card lg:hidden">
+        {tender.items.map((item) => (
+          <ItemRow key={item.id} item={item} layout="card" />
+        ))}
+      </ul>
+
+      <div className="hidden overflow-x-auto bg-card lg:block">
         <table className="w-full min-w-[1040px] table-fixed text-left">
           <thead>
             {/* Widths follow the work, not the content length. The four
@@ -428,7 +439,14 @@ function TenderItems({
   );
 }
 
-function ItemRow({ item }: { item: NoticeTenderItem }) {
+function ItemRow({
+  item,
+  layout = "row",
+}: {
+  item: NoticeTenderItem;
+  /** A table row (lg and up) or a stacked card (below). */
+  layout?: "row" | "card";
+}) {
   const [picking, setPicking] = useState(false);
   const [searching, setSearching] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -440,6 +458,162 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
   const confidence = item.match_confidence ? Number(item.match_confidence) : null;
   const settled =
     item.mapping_status === "confirmed" || item.mapping_status === "skipped";
+  const lineNo = String(item.line_no).padStart(2, "0");
+
+  // The cell contents, built once and placed by whichever layout renders.
+  const matchCell = item.matched_product ? (
+    <button
+      type="button"
+      onClick={() => setSearching(true)}
+      title={`Look up ${item.matched_product.name_en} in the catalogue`}
+      className="group/match flex w-full items-start gap-2 text-left"
+    >
+      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-success/10 text-success ring-1 ring-inset ring-success/15">
+        <FlaskConical className="size-3.5" strokeWidth={2.25} />
+      </span>
+      <span className="min-w-0">
+        <span className="block break-words text-sm font-bold text-success underline-offset-2 group-hover/match:underline">
+          {item.matched_product.name_en}
+        </span>
+        {item.matched_product.cas_number && (
+          <span className="block font-mono text-[11px] font-medium text-muted-foreground">
+            CAS: {item.matched_product.cas_number}
+          </span>
+        )}
+      </span>
+    </button>
+  ) : (
+    /* The Status column already says "No match" in words; repeating
+       the sentence here only cost the column its width. */
+    <span
+      className="text-sm font-medium text-muted-foreground"
+      title="No match in the catalogue"
+    >
+      —
+    </span>
+  );
+
+  const confidenceCell =
+    confidence !== null ? (
+      <>
+        <span className="block text-sm font-bold tabular-nums text-foreground">
+          {confidence}%
+        </span>
+        <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
+          <div
+            className={cn("h-full rounded-full", confidenceTone(confidence))}
+            style={{ width: `${Math.min(confidence, 100)}%` }}
+          />
+        </div>
+        {/* The method always travels with the score: "84%" alone is a
+            number nobody can argue with. Stacked rather than set beside
+            it, which is what let this column give up its width. */}
+        {item.match_method && (
+          <span className="mt-0.5 block text-[11px] font-medium text-muted-foreground">
+            {MATCH_METHOD_LABEL[item.match_method]}
+          </span>
+        )}
+      </>
+    ) : (
+      <span className="text-[10px] font-medium text-muted-foreground">—</span>
+    );
+
+  const statusPill = (
+    <span
+      className={cn(
+        "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset",
+        MAPPING_STATUS_STYLE[item.mapping_status],
+      )}
+    >
+      {MAPPING_STATUS_LABEL[item.mapping_status]}
+    </span>
+  );
+
+  /* The tick stays a button of its own: confirming the matcher's
+     suggestion is the one action done to most rows in a pass, and
+     burying it in a menu would cost a click on every line. */
+  const acceptButton = item.mapping_status === "suggested" && (
+    <button
+      type="button"
+      onClick={() => accept.mutate(item.id)}
+      disabled={accept.isPending}
+      title="Confirm this match"
+      className="inline-flex size-8 items-center justify-center rounded-lg border transition border-success/30 text-success hover:bg-success/10"
+    >
+      {accept.isPending ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Check className="size-4" strokeWidth={2.5} />
+      )}
+    </button>
+  );
+
+  const menu = (
+    <DropdownMenu
+      trigger={(props) => (
+        <button
+          type="button"
+          {...props}
+          aria-label={`More actions for line ${item.line_no}`}
+          className={cn(
+            "inline-flex items-center justify-center rounded-lg border border-border/60 text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            layout === "card" ? "size-9" : "size-8",
+          )}
+        >
+          <MoreVertical className="size-4" strokeWidth={2.25} />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <DropdownMenuItem
+            onClick={() => {
+              setEditing(true);
+              close();
+            }}
+          >
+            <Pencil />
+            Edit item
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onClick={() => {
+              setPicking(true);
+              close();
+            }}
+          >
+            <Search />
+            Choose another product
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
+            disabled={settled || map.isPending}
+            onClick={() => {
+              map.mutate({ itemId: item.id, skip: true });
+              close();
+            }}
+          >
+            <SkipForward />
+            {item.mapping_status === "skipped" ? "Already skipped" : "Skip"}
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            destructive
+            disabled={removeItem.isPending}
+            onClick={() => {
+              setConfirmingDelete(true);
+              close();
+            }}
+          >
+            <Trash2 />
+            Delete item
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenu>
+  );
 
   return (
     <>
@@ -474,192 +648,147 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
           }
         />
       )}
-      <tr className="border-b border-border/40 align-top transition-colors last:border-0 hover:bg-secondary/30">
-        <td className="px-3 py-3 text-sm font-bold tabular-nums text-muted-foreground">
-          {String(item.line_no).padStart(2, "0")}
-        </td>
-        <td className="px-3 py-3">
-          {/* Verbatim from the notice — never rewritten by the matcher. It is
-              the column a dispute gets checked against. */}
-          <span className="block break-words text-sm font-bold text-foreground">
-            {item.raw_name}
-          </span>
-        </td>
-        <td className="px-3 py-3 text-sm font-medium text-muted-foreground">
-          {item.specification ?? "—"}
-        </td>
-        <td className="px-3 py-3">
-          {item.matched_product ? (
-            <button
-              type="button"
-              onClick={() => setSearching(true)}
-              title={`Look up ${item.matched_product.name_en} in the catalogue`}
-              className="group/match flex w-full items-start gap-2 text-left"
-            >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-success/10 text-success ring-1 ring-inset ring-success/15">
-                <FlaskConical className="size-3.5" strokeWidth={2.25} />
+      {layout === "row" ? (
+        <>
+          <tr className="border-b border-border/40 align-top transition-colors last:border-0 hover:bg-secondary/30">
+            <td className="px-3 py-3 text-sm font-bold tabular-nums text-muted-foreground">
+              {lineNo}
+            </td>
+            <td className="px-3 py-3">
+              {/* Verbatim from the notice — never rewritten by the matcher. It is
+                  the column a dispute gets checked against. */}
+              <span className="block break-words text-sm font-bold text-foreground">
+                {item.raw_name}
               </span>
-              <span className="min-w-0">
-                <span className="block break-words text-sm font-bold text-success underline-offset-2 group-hover/match:underline">
-                  {item.matched_product.name_en}
-                </span>
-                {item.matched_product.cas_number && (
-                  <span className="block font-mono text-[11px] font-medium text-muted-foreground">
-                    CAS: {item.matched_product.cas_number}
-                  </span>
-                )}
-              </span>
-            </button>
-          ) : (
-            /* The Status column already says "No match" in words; repeating
-               the sentence here only cost the column its width. */
-            <span
-              className="text-sm font-medium text-muted-foreground"
-              title="No match in the catalogue"
-            >
-              —
-            </span>
-          )}
-        </td>
-        <td className="px-3 py-3">
-          {confidence !== null ? (
-            <>
-              <span className="block text-sm font-bold tabular-nums text-foreground">
-                {confidence}%
-              </span>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className={cn("h-full rounded-full", confidenceTone(confidence))}
-                  style={{ width: `${Math.min(confidence, 100)}%` }}
-                />
+            </td>
+            <td className="px-3 py-3 text-sm font-medium text-muted-foreground">
+              {item.specification ?? "—"}
+            </td>
+            <td className="px-3 py-3">{matchCell}</td>
+            <td className="px-3 py-3">{confidenceCell}</td>
+            <td className="px-3 py-3">
+              <SupplierPicker item={item} />
+            </td>
+            <td className="px-3 py-3">{statusPill}</td>
+            <td className="px-3 py-3">
+              <div className="flex items-center gap-1.5">
+                {acceptButton}
+                {menu}
               </div>
-              {/* The method always travels with the score: "84%" alone is a
-                  number nobody can argue with. Stacked rather than set beside
-                  it, which is what let this column give up its width. */}
-              {item.match_method && (
-                <span className="mt-0.5 block text-[11px] font-medium text-muted-foreground">
-                  {MATCH_METHOD_LABEL[item.match_method]}
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-[10px] font-medium text-muted-foreground">
-              —
-            </span>
+            </td>
+          </tr>
+
+          {editing && (
+            <tr className="border-b border-border/40 bg-secondary/30">
+              <td colSpan={8} className="px-3 py-3">
+                <ItemEditor item={item} onDone={() => setEditing(false)} />
+              </td>
+            </tr>
           )}
-        </td>
-        <td className="px-3 py-3">
-          <SupplierPicker item={item} />
-        </td>
-        <td className="px-3 py-3">
-          <span
-            className={cn(
-              "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset",
-              MAPPING_STATUS_STYLE[item.mapping_status],
+          {picking && (
+            <tr className="border-b border-border/40 bg-secondary/30">
+              <td colSpan={8} className="px-3 py-3">
+                <CandidatePicker item={item} onDone={() => setPicking(false)} />
+              </td>
+            </tr>
+          )}
+        </>
+      ) : (
+        /* The phone / tablet card: what the notice asked for, what it was
+           matched to, who can supply it, and the one-tap confirm. */
+        <li className="space-y-3 px-4 py-3.5">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-secondary px-1 text-[11px] font-bold tabular-nums text-muted-foreground">
+              {lineNo}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-sm font-bold leading-snug text-foreground">
+                {item.raw_name}
+              </p>
+              {item.specification && (
+                <p className="mt-0.5 text-xs font-medium text-muted-foreground">
+                  Spec: {item.specification}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0">{statusPill}</div>
+          </div>
+
+          <div className="rounded-xl bg-secondary/40 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Suggested match
+            </p>
+            {item.matched_product ? (
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">{matchCell}</div>
+                {confidence !== null && (
+                  <div className="w-20 shrink-0 text-right">{confidenceCell}</div>
+                )}
+              </div>
+            ) : (
+              <p className="mt-0.5 text-xs font-medium text-muted-foreground">
+                No match in the catalogue — choose a product, or skip this line
+                from the ⋮ menu.
+              </p>
             )}
-          >
-            {MAPPING_STATUS_LABEL[item.mapping_status]}
-          </span>
-        </td>
-        <td className="px-3 py-3">
-          <div className="flex items-center gap-1.5">
-            {/* The tick stays a button of its own: confirming the matcher's
-                suggestion is the one action done to most rows in a pass, and
-                burying it in a menu would cost a click on every line. */}
-            {item.mapping_status === "suggested" && (
-              <button
+          </div>
+
+          {/* Nothing to tick until a product is mapped — the button below
+              says what to do instead. */}
+          {item.matched_product_id !== null && (
+            <div>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Supplier candidates
+              </p>
+              <SupplierPicker item={item} roomy />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            {item.mapping_status === "suggested" ? (
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 flex-1 border-success/30 text-success hover:bg-success/10"
                 onClick={() => accept.mutate(item.id)}
                 disabled={accept.isPending}
-                title="Confirm this match"
-                className="inline-flex size-8 items-center justify-center rounded-lg border transition border-success/30 text-success hover:bg-success/10"
               >
                 {accept.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Loader2 className="animate-spin" />
                 ) : (
-                  <Check className="size-4" strokeWidth={2.5} />
+                  <Check strokeWidth={2.5} />
                 )}
-              </button>
+                Confirm match
+              </Button>
+            ) : item.matched_product_id === null && !picking ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 flex-1"
+                onClick={() => setPicking(true)}
+              >
+                <Search />
+                Choose product
+              </Button>
+            ) : (
+              <span className="flex-1" />
             )}
-
-            <DropdownMenu
-              trigger={(props) => (
-                <button
-                  type="button"
-                  {...props}
-                  aria-label={`More actions for line ${item.line_no}`}
-                  className="inline-flex size-8 items-center justify-center rounded-lg border border-border/60 text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                >
-                  <MoreVertical className="size-4" strokeWidth={2.25} />
-                </button>
-              )}
-            >
-              {(close) => (
-                <>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setEditing(true);
-                      close();
-                    }}
-                  >
-                    <Pencil />
-                    Edit item
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPicking(true);
-                      close();
-                    }}
-                  >
-                    <Search />
-                    Choose another product
-                  </DropdownMenuItem>
-
-                  <DropdownMenuSeparator />
-
-                  <DropdownMenuItem
-                    disabled={settled || map.isPending}
-                    onClick={() => {
-                      map.mutate({ itemId: item.id, skip: true });
-                      close();
-                    }}
-                  >
-                    <SkipForward />
-                    {item.mapping_status === "skipped" ? "Already skipped" : "Skip"}
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    destructive
-                    disabled={removeItem.isPending}
-                    onClick={() => {
-                      setConfirmingDelete(true);
-                      close();
-                    }}
-                  >
-                    <Trash2 />
-                    Delete item
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenu>
+            {menu}
           </div>
-        </td>
-      </tr>
 
-      {editing && (
-        <tr className="border-b border-border/40 bg-secondary/30">
-          <td colSpan={8} className="px-3 py-3">
-            <ItemEditor item={item} onDone={() => setEditing(false)} />
-          </td>
-        </tr>
-      )}
-      {picking && (
-        <tr className="border-b border-border/40 bg-secondary/30">
-          <td colSpan={8} className="px-3 py-3">
-            <CandidatePicker item={item} onDone={() => setPicking(false)} />
-          </td>
-        </tr>
+          {editing && (
+            <div className="rounded-xl bg-secondary/30 p-3">
+              <ItemEditor item={item} onDone={() => setEditing(false)} />
+            </div>
+          )}
+          {picking && (
+            <div className="rounded-xl bg-secondary/30 p-3">
+              <CandidatePicker item={item} onDone={() => setPicking(false)} />
+            </div>
+          )}
+        </li>
       )}
     </>
   );
@@ -675,7 +804,15 @@ function ItemRow({ item }: { item: NoticeTenderItem }) {
  *  Selections are sent as the FULL set, not a delta, so the request is
  *  idempotent.
  */
-function SupplierPicker({ item }: { item: NoticeTenderItem }) {
+function SupplierPicker({
+  item,
+  roomy = false,
+}: {
+  item: NoticeTenderItem;
+  /** Finger-sized rows for the mobile card: a full-size box and taller hit
+   *  area, since ticking is most of the review. */
+  roomy?: boolean;
+}) {
   const setSuppliers = useSetItemSuppliers();
   const [expanded, setExpanded] = useState(false);
 
@@ -728,14 +865,24 @@ function SupplierPicker({ item }: { item: NoticeTenderItem }) {
 
           return (
             <li key={supplier.supplier_product_id}>
-              <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 transition hover:bg-secondary/60">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center rounded-md transition hover:bg-secondary/60",
+                  roomy ? "gap-2.5 px-1.5 py-2" : "gap-2 px-1.5 py-1",
+                )}
+              >
                 <Checkbox
                   checked={supplier.is_selected}
                   onChange={() => toggle(supplier)}
                   disabled={setSuppliers.isPending}
-                  className="size-3.5"
+                  className={roomy ? undefined : "size-3.5"}
                 />
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate font-semibold text-foreground",
+                    roomy ? "text-[13px]" : "text-xs",
+                  )}
+                >
                   {supplier.company_name}
                 </span>
                 {meta && (
@@ -753,7 +900,10 @@ function SupplierPicker({ item }: { item: NoticeTenderItem }) {
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="px-1.5 text-[11px] font-bold text-muted-foreground underline-offset-2 hover:underline"
+          className={cn(
+            "px-1.5 text-[11px] font-bold text-muted-foreground underline-offset-2 hover:underline",
+            roomy && "py-1.5 text-xs text-primary",
+          )}
         >
           {expanded ? "Show fewer" : `+${item.suppliers.length - 3} more`}
         </button>

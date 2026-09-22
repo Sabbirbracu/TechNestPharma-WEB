@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { TenderWorkspace } from "@/components/tenders/tender-workspace";
 
-export const metadata: Metadata = { title: "Tenders" };
+export const metadata: Metadata = { title: "Active Tenders" };
 
 /**
  * Government and private tender board (FR-TENDER).

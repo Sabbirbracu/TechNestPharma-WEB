@@ -37,6 +37,7 @@ export function ComposeDialog({
   onClose,
   initialTo = "",
   initialSubject = "",
+  initialBody = "",
   threadId = null,
   replyingTo = null,
   requestId = null,
@@ -44,6 +45,8 @@ export function ComposeDialog({
   onClose: () => void;
   initialTo?: string;
   initialSubject?: string;
+  /** Prefilled text — a suggested reply the buyer picked, still editable. */
+  initialBody?: string;
   /** Set to continue a conversation rather than start one. */
   threadId?: string | null;
   /** Who the reply is to, for the header line. */
@@ -70,7 +73,7 @@ export function ComposeDialog({
   const [to, setTo] = useState(initialTo);
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(initialBody);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

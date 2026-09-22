@@ -43,14 +43,14 @@ export function ExtractionSummary({ notice }: { notice: TenderNoticeDetail }) {
   ];
 
   return (
-    <div className="grid gap-5 p-5 lg:grid-cols-2">
+    <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-2">
       <dl className="space-y-2.5">
         {rows.map(([label, value]) => (
           <div
             key={label}
             className="flex items-baseline justify-between gap-3 border-b border-border/40 pb-2 last:border-0"
           >
-            <dt className="text-xs font-medium text-muted-foreground">
+            <dt className="shrink-0 text-xs font-medium text-muted-foreground">
               {label}
             </dt>
             <dd className="text-right text-xs font-bold text-foreground">

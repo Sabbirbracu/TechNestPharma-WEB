@@ -1,12 +1,23 @@
 "use client";
 
+import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { useFetchNoticeSource, useNoticeSources } from "@/lib/queries";
 import { cn } from "@/lib/utils";
-import type { NoticeSource } from "@/types/api";
+import type { NoticeFetchReport, NoticeSource } from "@/types/api";
+import { HookFetchStage, type HookFetchOutcome } from "./hook-fetch-stage";
+
+/** One short line for the end of the animation; the toast carries the detail. */
+function resultLine(report: NoticeFetchReport | undefined): string {
+  if (!report) return "";
+  const created = report.notices_created;
+  return created > 0
+    ? `${created} new notice${created === 1 ? "" : "s"} reeled in.`
+    : "Checked — nothing new today.";
+}
 
 /** "2 hours ago", "3 days ago" — coarse on purpose.
  *
@@ -71,8 +82,20 @@ export function SourceRow({
 }) {
   const fetchNow = useFetchNoticeSource();
   const failed = Boolean(source.last_error);
+  // Whether the hook animation is on stage. Outlives the request on purpose —
+  // the request's own result (toast, refreshed list) never waits for it.
+  const [performing, setPerforming] = useState(false);
+
+  const outcome: HookFetchOutcome = fetchNow.isError
+    ? "error"
+    : fetchNow.isSuccess
+      ? "success"
+      : "pending";
 
   const run = () => {
+    // Reduced motion: the plain spinner button, and nothing else.
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced) setPerforming(true);
     fetchNow.mutate(source.id, {
       onSuccess: (report) => {
         // The skip counts are the interesting part of a successful run: "12
@@ -119,7 +142,9 @@ export function SourceRow({
         )}
       </span>
 
-      <div className="min-w-0 flex-1">
+      {/* The min width makes the button wrap under the text on a phone,
+          rather than squeezing it into a narrow column. */}
+      <div className="min-w-48 flex-1">
         <p className="text-xs font-bold text-foreground">
           {source.name}
           <span className="ml-1.5 font-medium text-muted-foreground">
@@ -145,16 +170,36 @@ export function SourceRow({
       {canRetry && (
         <Button
           type="button"
-          variant={failed ? "default" : "outline"}
           size="sm"
           onClick={run}
-          disabled={fetchNow.isPending}
+          disabled={fetchNow.isPending || performing}
+          aria-busy={fetchNow.isPending}
+          className={cn(
+            // ml-10 = the icon (size-7) + gap-3, so a wrapped button lines up
+            // under the text.
+            "ml-10 shadow-md transition-shadow sm:ml-0",
+            failed
+              ? "shadow-destructive/20"
+              : "shadow-primary/25 ring-2 ring-primary/20 hover:shadow-lg hover:ring-primary/35",
+          )}
         >
           {fetchNow.isPending ? (
             <>
               <Loader2 className="size-3.5 animate-spin" />
               Checking…
             </>
+          ) : performing ? (
+            fetchNow.isError ? (
+              <>
+                <AlertTriangle className="size-3.5" strokeWidth={2.25} />
+                Failed
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="size-3.5" strokeWidth={2.25} />
+                Checked
+              </>
+            )
           ) : (
             <>
               <RefreshCw className="size-3.5" strokeWidth={2.25} />
@@ -162,6 +207,18 @@ export function SourceRow({
             </>
           )}
         </Button>
+      )}
+
+      {performing && (
+        <HookFetchStage
+          outcome={outcome}
+          title={`Checking ${source.name}`}
+          padLabel={source.name}
+          resultCaption={
+            fetchNow.isError ? "The line snapped. Try again in a moment." : resultLine(fetchNow.data)
+          }
+          onDone={() => setPerforming(false)}
+        />
       )}
     </div>
   );

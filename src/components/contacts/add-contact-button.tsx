@@ -10,7 +10,7 @@ export function AddContactButton() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button onClick={() => setOpen(true)} className="w-full sm:w-44">
         <UserRoundPlus strokeWidth={2.25} />
         Add Contact
       </Button>

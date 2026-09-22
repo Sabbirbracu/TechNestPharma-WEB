@@ -75,6 +75,7 @@ export const MATCH_METHOD_LABEL: Record<MatchMethod, string> = {
   normalized: "normalised",
   alias: "alias",
   fuzzy: "fuzzy",
+  partial: "partial",
   manual: "chosen",
 };
 

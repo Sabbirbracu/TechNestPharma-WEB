@@ -26,11 +26,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DeleteTenderDescription } from "./delete-tender-description";
 import { useDeleteTender } from "@/lib/queries";
+import { shortReference } from "@/lib/tender-reference";
 import { cn } from "@/lib/utils";
 import {
   DisplayStatusBadge,
-  authorityTypeLabel,
   closingLabel,
 } from "./tender-status";
 import type { TenderListItem } from "@/types/api";
@@ -67,11 +68,25 @@ export function TenderTable({
   // stay meaningful across a filter/sort change since they're never scoped to
   // "the current page" — clearing only happens once the delete goes through.
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Which selected tenders came from a notice, remembered at selection time:
+  // a selection can span pages, and the delete dialog words the outcome by it.
+  const [fromNotice, setFromNotice] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [confirmingBulk, setConfirmingBulk] = useState(false);
   const deleteTender = useDeleteTender();
 
+  function rememberOrigin(ids: number[]) {
+    setFromNotice((current) => {
+      const next = new Set(current);
+      for (const row of rows) {
+        if (ids.includes(row.id) && row.tender_notice_id !== null) next.add(row.id);
+      }
+      return next;
+    });
+  }
+
   function toggleRow(id: number) {
+    rememberOrigin([id]);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -85,7 +100,12 @@ export function TenderTable({
   const allOnPageSelected =
     pageIds.length > 0 && selectedOnPage.length === pageIds.length;
 
+  const selectedFromNotice = Array.from(selected).filter((id) =>
+    fromNotice.has(id),
+  ).length;
+
   function toggleAllOnPage() {
+    rememberOrigin(pageIds);
     setSelected((current) => {
       const next = new Set(current);
       if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
@@ -109,12 +129,12 @@ export function TenderTable({
     const succeeded = results.length - failed;
 
     if (failed === 0) {
-      toast.success(`Deleted ${label}`, { duration: 6000 });
+      toast.success(`Removed ${label} from the board`, { duration: 6000 });
     } else if (succeeded === 0) {
       toast.error(`Could not delete ${label}`, { duration: 6000 });
     } else {
       toast.error(
-        `Deleted ${succeeded} of ${results.length} tenders — ${failed} failed`,
+        `Removed ${succeeded} of ${results.length} tenders — ${failed} failed`,
         { duration: 6000 },
       );
     }
@@ -125,12 +145,14 @@ export function TenderTable({
 
   return (
     <>
-      <div className="flex flex-col gap-3 border-b border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div className="flex flex-col gap-3 border-b border-border/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <p className="text-sm font-bold text-foreground">
           All Tenders <span className="tabular-nums">({total.toLocaleString()})</span>
         </p>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* Phone: one row — sort stretches, Export beside it. The view toggle
+            is desktop-only: below lg the list is always cards. */}
+        <div className="flex items-center gap-2.5 sm:flex-wrap">
           <Button
             type="button"
             variant="outline"
@@ -147,7 +169,7 @@ export function TenderTable({
             Export
           </Button>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm">
+          <div className="hidden items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm lg:flex">
             <ViewToggle
               active={view === "list"}
               onClick={() => onViewChange("list")}
@@ -162,15 +184,15 @@ export function TenderTable({
             />
           </div>
 
-          <label className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+          <label className="order-first flex min-w-0 flex-1 items-center gap-2 sm:order-none sm:flex-none">
+            <span className="hidden whitespace-nowrap text-xs font-medium text-muted-foreground sm:inline">
               Sort by:
             </span>
             <select
               value={sort}
               onChange={(event) => onSortChange(event.target.value)}
               aria-label="Sort tenders"
-              className="h-9 cursor-pointer rounded-lg border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+              className="h-9 w-full min-w-0 cursor-pointer rounded-lg border border-input bg-card px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-ring/40 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 sm:w-auto"
             >
               <option value="created_at:desc">Created (Newest)</option>
               <option value="created_at:asc">Created (Oldest)</option>
@@ -204,32 +226,40 @@ export function TenderTable({
             isFetching && "pointer-events-none opacity-60",
           )}
         >
-          {view === "list" ? (
-            <ListView
-              rows={rows}
-              selected={selected}
-              onToggleRow={toggleRow}
-              allOnPageSelected={allOnPageSelected}
-              someOnPageSelected={selectedOnPage.length > 0 && !allOnPageSelected}
-              onToggleAll={toggleAllOnPage}
-            />
-          ) : (
-            <CardView rows={rows} />
-          )}
+          <MobileList
+            rows={rows}
+            selected={selected}
+            onToggleRow={toggleRow}
+            allOnPageSelected={allOnPageSelected}
+            someOnPageSelected={selectedOnPage.length > 0 && !allOnPageSelected}
+            onToggleAll={toggleAllOnPage}
+          />
+          <div className="hidden lg:block">
+            {view === "list" ? (
+              <ListView
+                rows={rows}
+                selected={selected}
+                onToggleRow={toggleRow}
+                allOnPageSelected={allOnPageSelected}
+                someOnPageSelected={selectedOnPage.length > 0 && !allOnPageSelected}
+                onToggleAll={toggleAllOnPage}
+              />
+            ) : (
+              <CardView rows={rows} />
+            )}
+          </div>
         </div>
       )}
 
       {confirmingBulk && (
         <ConfirmDialog
-          title="Delete these tenders?"
+          title={selected.size === 1 ? "Delete this tender?" : "Delete these tenders?"}
           description={
-            <>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold text-foreground">
-                {selected.size} tender{selected.size === 1 ? "" : "s"}
-              </span>
-              ? This cannot be undone from here.
-            </>
+            <DeleteTenderDescription
+              label={`${selected.size} tender${selected.size === 1 ? "" : "s"}`}
+              fromNotice={selectedFromNotice}
+              typedIn={selected.size - selectedFromNotice}
+            />
           }
           confirmLabel="Delete"
           busy={deleting}
@@ -261,8 +291,7 @@ function ListView({
       <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
         <colgroup>
           <col className="w-11" />
-          <col className="w-[30%]" />
-          <col className="w-[24%]" />
+          <col className="w-[46%]" />
           <col className="w-[150px]" />
           <col className="w-[130px]" />
           <col className="w-[180px]" />
@@ -282,8 +311,7 @@ function ListView({
                 }
               />
             </th>
-            <HeaderCell>Tender Title &amp; Reference</HeaderCell>
-            <HeaderCell>Authority</HeaderCell>
+            <HeaderCell>Tender Reference &amp; Title</HeaderCell>
             <HeaderCell>Closing Date</HeaderCell>
             <HeaderCell>Status</HeaderCell>
             <HeaderCell>Progress</HeaderCell>
@@ -336,33 +364,33 @@ function Row({
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tile-blue-bg text-tile-blue ring-1 ring-inset ring-tile-blue/15">
             <Building2 className="size-[18px]" strokeWidth={2} />
           </span>
+          {/* Same shape as the notice screen's tender table: the reference
+              (with its authority) leads, the item-derived name follows. The
+              authority badge is why there is no separate Authority column. */}
           <div className="min-w-0">
+            <p className="flex items-center gap-1.5 whitespace-nowrap">
+              <BuyerBadge buyerName={row.buyer_name} />
+              {row.reference_no ? (
+                <span
+                  className="truncate font-mono text-sm font-bold text-foreground"
+                  title={row.reference_no}
+                >
+                  {shortReference(row.reference_no)}
+                </span>
+              ) : (
+                <span className="truncate text-sm font-bold text-foreground">
+                  No reference
+                </span>
+              )}
+            </p>
             <p
-              className="truncate text-sm font-bold text-foreground"
+              className="truncate text-xs font-semibold text-foreground/80"
               title={row.name}
             >
               {row.name}
             </p>
-            {/* The buyer rides with the reference: EDCL's tender numbers
-                differ only by a serial, so the reference alone does not
-                identify a row once several authorities share the board. */}
-            <p className="flex items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
-              <BuyerBadge buyerName={row.buyer_name} />
-              <span className="truncate">
-                {row.reference_no ? `Ref: ${row.reference_no}` : "No reference"}
-              </span>
-            </p>
           </div>
         </Link>
-      </td>
-
-      <td className="overflow-hidden px-4 py-3.5">
-        <p className="truncate text-xs font-bold text-foreground" title={row.buyer_name ?? undefined}>
-          {row.buyer_name ?? "—"}
-        </p>
-        <p className="truncate text-xs font-medium text-muted-foreground">
-          {authorityTypeLabel(row.authority_type)}
-        </p>
       </td>
 
       <td className="overflow-hidden px-4 py-3.5">
@@ -434,6 +462,145 @@ function Row({
         </div>
       </td>
     </tr>
+  );
+}
+
+function formatClosing(date: string): string {
+  return new Date(date).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * The list below lg: one card per tender, with the table's checkbox (bulk
+ * delete works the same) and ⋮ menu kept outside the link.
+ */
+function MobileList({
+  rows,
+  selected,
+  onToggleRow,
+  allOnPageSelected,
+  someOnPageSelected,
+  onToggleAll,
+}: {
+  rows: TenderListItem[];
+  selected: Set<number>;
+  onToggleRow: (id: number) => void;
+  allOnPageSelected: boolean;
+  someOnPageSelected: boolean;
+  onToggleAll: () => void;
+}) {
+  return (
+    <div className="lg:hidden">
+      <label className="flex cursor-pointer items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-2 text-xs font-semibold text-muted-foreground">
+        <Checkbox
+          checked={allOnPageSelected}
+          indeterminate={someOnPageSelected}
+          onChange={onToggleAll}
+          aria-label={
+            allOnPageSelected
+              ? "Clear selection on this page"
+              : "Select every tender on this page"
+          }
+        />
+        Select all on this page
+      </label>
+
+      <ul className="divide-y divide-border/50">
+        {rows.map((row) => {
+          const closing = closingLabel(row.closing_date);
+          const pct =
+            row.product_count > 0 ? (row.sourced_count / row.product_count) * 100 : 0;
+          const isSelected = selected.has(row.id);
+
+          return (
+            <li
+              key={row.id}
+              className={cn(
+                "flex items-start gap-3 pl-4 transition-colors",
+                isSelected && "bg-primary/[0.04]",
+              )}
+            >
+              <span className="flex shrink-0 pt-4">
+                <Checkbox
+                  checked={isSelected}
+                  onChange={() => onToggleRow(row.id)}
+                  aria-label={`Select ${row.name}`}
+                />
+              </span>
+
+              <Link href={`/tenders/${row.id}`} className="min-w-0 flex-1 py-3.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <BuyerBadge buyerName={row.buyer_name} />
+                    <span
+                      className={cn(
+                        "truncate text-sm font-bold text-foreground",
+                        row.reference_no && "font-mono",
+                      )}
+                      title={row.reference_no ?? undefined}
+                    >
+                      {row.reference_no ? shortReference(row.reference_no) : "No reference"}
+                    </span>
+                  </span>
+                  <DisplayStatusBadge status={row.display_status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs font-semibold break-words text-foreground/80">
+                  {row.name}
+                </p>
+
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-2 text-xs">
+                  {row.closing_date ? (
+                    <>
+                      <span className="font-medium tabular-nums text-foreground/85">
+                        Closes {formatClosing(row.closing_date)}
+                      </span>
+                      {closing && (
+                        <span
+                          className={cn(
+                            "font-semibold",
+                            closing.urgent ? "text-destructive" : "text-muted-foreground",
+                          )}
+                        >
+                          · {closing.text}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="italic text-muted-foreground/60">No closing date</span>
+                  )}
+                </div>
+
+                {row.product_count > 0 ? (
+                  <div className="mt-2">
+                    <p className="text-[11px] font-bold tabular-nums text-foreground">
+                      {row.sourced_count} / {row.product_count}{" "}
+                      <span className="font-medium text-muted-foreground">products sourced</span>
+                    </p>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={cn("h-full rounded-full", pct >= 100 ? "bg-success" : "bg-primary")}
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[11px] font-medium text-muted-foreground/70">
+                    No products yet
+                  </p>
+                )}
+              </Link>
+
+              <div className="shrink-0 pt-3 pr-2">
+                <RowMenu row={row} />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -556,18 +723,17 @@ function RowMenu({ row }: { row: TenderListItem }) {
         <ConfirmDialog
           title="Delete this tender?"
           description={
-            <>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold text-foreground">
-                &quot;{row.name}&quot;
-              </span>
-              ? This cannot be undone from here.
-            </>
+            <DeleteTenderDescription
+              label={shortReference(row.reference_no) ?? row.name}
+              fromNotice={row.tender_notice_id !== null ? 1 : 0}
+              typedIn={row.tender_notice_id !== null ? 0 : 1}
+            />
           }
           confirmLabel="Delete"
           busy={deleteTender.isPending}
           onConfirm={() => {
             deleteTender.mutate(row.id, {
+              onSuccess: (result) => toast.success(result.detail),
               onSettled: () => setConfirming(false),
             });
           }}
@@ -590,7 +756,7 @@ function BulkBar({
   deleting: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-5 py-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/[0.06] px-4 py-3 sm:px-5">
       <p className="text-sm font-semibold text-foreground">
         <span className="tabular-nums">{count}</span> tender
         {count === 1 ? "" : "s"} selected
@@ -609,7 +775,7 @@ function BulkBar({
           ) : (
             <Trash2 strokeWidth={2.25} />
           )}
-          Delete selected
+          Delete<span className="hidden sm:inline"> selected</span>
         </Button>
         <Button
           type="button"

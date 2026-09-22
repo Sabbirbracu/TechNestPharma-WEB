@@ -58,6 +58,23 @@ export function useNoticeDocumentUrl(noticeId: number, enabled = true) {
   return { file, url, isPending, error };
 }
 
+/** How the PDF opens: the whole page, the page's width, or a fixed percent. */
+export type DocumentZoom = "page" | "width" | number;
+
+/**
+ * The browser PDF viewer's open parameters for a zoom.
+ *
+ * `page` is the whole sheet — right for the Source Document panel, wrong
+ * beside the item list, where an A4 scan shrunk into half a dialog puts the
+ * item names at about 6px. A number is a percent (`#zoom=150`); Chrome, Edge
+ * and Firefox honour it, Safari opens at its own default.
+ */
+function viewerFragment(zoom: DocumentZoom): string {
+  const view =
+    zoom === "page" ? "view=Fit" : zoom === "width" ? "view=FitH" : `zoom=${zoom}`;
+  return `#${view}&navpanes=0&pagemode=none`;
+}
+
 export function NoticeDocumentFrame({
   url,
   file,
@@ -65,6 +82,7 @@ export function NoticeDocumentFrame({
   isPending,
   error,
   className,
+  zoom = "page",
 }: {
   url: string | null;
   file: Blob | undefined;
@@ -74,6 +92,7 @@ export function NoticeDocumentFrame({
   /** Height of the viewing area. Callers own it: the panel sizes against the
    *  viewport, the dialog fills its pane. */
   className?: string;
+  zoom?: DocumentZoom;
 }) {
   // The blob's own type is the Content-Type the API served, which beats
   // guessing from the extension — a scan uploaded as "notice.pdf" that is
@@ -85,7 +104,9 @@ export function NoticeDocumentFrame({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-border/60 bg-secondary/30",
+        "rounded-xl border border-border/60 bg-secondary/30",
+        // A zoomed image scrolls inside the frame; a PDF scrolls in its viewer.
+        !isPdf && zoom !== "page" ? "overflow-auto" : "overflow-hidden",
         className,
       )}
     >
@@ -106,11 +127,11 @@ export function NoticeDocumentFrame({
           </p>
         </div>
       ) : isPdf ? (
-        /* `#view=Fit` asks the browser's own PDF viewer to scale a whole page
-           into the frame instead of showing the top of it at 100% and leaving
-           the rest below the fold. */
+        /* Keyed on the zoom: the viewer reads its open parameters once, at
+           load, so changing only the fragment would leave the old zoom on. */
         <iframe
-          src={`${url}#view=Fit&navpanes=0&pagemode=none`}
+          key={String(zoom)}
+          src={`${url}${viewerFragment(zoom)}`}
           title={filename}
           className="size-full border-0 bg-card"
         />
@@ -119,7 +140,15 @@ export function NoticeDocumentFrame({
         <img
           src={url}
           alt={filename}
-          className="size-full bg-card object-contain"
+          className={cn(
+            "bg-card",
+            zoom === "page" ? "size-full object-contain" : "h-auto max-w-none",
+          )}
+          style={
+            zoom === "page"
+              ? undefined
+              : { width: zoom === "width" ? "100%" : `${zoom}%` }
+          }
         />
       )}
     </div>

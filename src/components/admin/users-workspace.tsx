@@ -96,18 +96,21 @@ export function UsersWorkspace() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-        <div className="relative w-full max-w-xs">
+      {/* Phone: search on its own line, the two filters sharing the next. */}
+      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-sm sm:flex sm:flex-wrap sm:items-center sm:p-4">
+        <div className="relative col-span-2 w-full sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => changeQuery(event.target.value)}
+            type="search"
+            enterKeyHint="search"
             placeholder="Search by name or email…"
             className="pl-9"
             aria-label="Search users"
           />
         </div>
-        <div className="w-44">
+        <div className="min-w-0 sm:w-44">
           <Select
             value={role}
             onChange={(event) => {
@@ -122,7 +125,7 @@ export function UsersWorkspace() {
             <option value="viewer">Viewer</option>
           </Select>
         </div>
-        <div className="w-40">
+        <div className="min-w-0 sm:w-40">
           <Select
             value={status}
             onChange={(event) => {
@@ -160,10 +163,18 @@ export function UsersWorkspace() {
         ) : (
           <div
             className={cn(
-              "overflow-x-auto transition-opacity duration-200",
+              "transition-opacity duration-200",
               isFetching && "pointer-events-none opacity-60",
             )}
           >
+            {/* Below lg the six columns don't fit: one card per user. */}
+            <ul className="divide-y divide-border/50 lg:hidden">
+              {rows.map((row) => (
+                <UserCard key={row.id} row={row} />
+              ))}
+            </ul>
+
+            <div className="hidden overflow-x-auto lg:block">
             <table className="w-full min-w-[760px] table-fixed border-collapse text-sm">
               <colgroup>
                 <col className="w-[30%]" />
@@ -189,11 +200,12 @@ export function UsersWorkspace() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
         {total > 0 && (
-          <div className="border-t border-border/60 px-4 py-4 sm:px-5">
+          <div className="border-t border-border/60 px-3 py-4 sm:px-5">
             <ResultsPagination
               page={data?.page ?? page}
               pageCount={data?.pages ?? 1}
@@ -218,7 +230,9 @@ export function UsersWorkspace() {
   );
 }
 
-function UserRow({ row }: { row: AdminUser }) {
+/** Everything a user row can do — role change, suspend / reactivate, delete —
+ *  shared by the table row and the mobile card. */
+function useUserActions(row: AdminUser) {
   const { user: me } = useAuth();
   const isSelf = me?.id === row.id;
 
@@ -272,51 +286,164 @@ function UserRow({ row }: { row: AdminUser }) {
     }
   }
 
+  return {
+    isSelf,
+    busy,
+    deleting: deleteUser.isPending,
+    confirmingDelete,
+    setConfirmingDelete,
+    onRoleChange,
+    onSuspend,
+    onReactivate,
+    onDelete,
+  };
+}
+
+type UserActions = ReturnType<typeof useUserActions>;
+
+function UserIdentity({ row, isSelf }: { row: AdminUser; isSelf: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <UserAvatar user={row} size="size-9" />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold text-foreground" title={row.full_name}>
+          {row.full_name}
+          {isSelf && <span className="ml-1.5 text-xs font-medium text-muted-foreground">(you)</span>}
+        </p>
+        <p className="truncate text-xs font-medium text-muted-foreground" title={row.email}>
+          {row.email}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RoleSelect({ row, actions }: { row: AdminUser; actions: UserActions }) {
+  return (
+    <Select
+      value={row.role}
+      onChange={(event) => actions.onRoleChange(event.target.value as UserRole)}
+      disabled={actions.isSelf || actions.busy}
+      aria-label={`Role for ${row.full_name}`}
+      className="h-9 text-xs"
+    >
+      <option value="owner">{ROLE_LABEL.owner}</option>
+      <option value="staff">{ROLE_LABEL.staff}</option>
+      <option value="viewer">{ROLE_LABEL.viewer}</option>
+    </Select>
+  );
+}
+
+function StatusPill({ active }: { active: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
+        active
+          ? "bg-success/10 text-success ring-success/20"
+          : "bg-destructive/10 text-destructive ring-destructive/20",
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", active ? "bg-success" : "bg-destructive")} />
+      {active ? "Active" : "Suspended"}
+    </span>
+  );
+}
+
+function ActionsMenu({ row, actions }: { row: AdminUser; actions: UserActions }) {
+  return (
+    <DropdownMenu
+      trigger={(props) => (
+        <button
+          type="button"
+          {...props}
+          disabled={actions.isSelf || actions.busy}
+          aria-label={`Actions for ${row.full_name}`}
+          className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-40"
+        >
+          {actions.busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <MoreHorizontal className="size-4" strokeWidth={2.25} />
+          )}
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          {row.is_active ? (
+            <DropdownMenuItem
+              onClick={() => {
+                close();
+                actions.onSuspend();
+              }}
+            >
+              <ShieldOff />
+              Suspend
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onClick={() => {
+                close();
+                actions.onReactivate();
+              }}
+            >
+              <UserCheck />
+              Reactivate
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            destructive
+            onClick={() => {
+              close();
+              actions.setConfirmingDelete(true);
+            }}
+          >
+            <Trash2 />
+            Delete user
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenu>
+  );
+}
+
+function DeleteConfirm({ row, actions }: { row: AdminUser; actions: UserActions }) {
+  if (!actions.confirmingDelete) return null;
+  return (
+    <ConfirmDialog
+      title="Delete this user?"
+      description={
+        <>
+          Are you sure you want to delete{" "}
+          <span className="font-semibold text-foreground">{row.full_name}</span>?
+          This only succeeds if they have no activity on record — otherwise, suspend
+          them instead.
+        </>
+      }
+      confirmLabel="Delete"
+      busy={actions.deleting}
+      onConfirm={actions.onDelete}
+      onCancel={() => actions.setConfirmingDelete(false)}
+    />
+  );
+}
+
+function UserRow({ row }: { row: AdminUser }) {
+  const actions = useUserActions(row);
+
   return (
     <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-accent/25">
       <td className="min-w-0 px-4 py-3.5">
-        <div className="flex items-center gap-3">
-          <UserAvatar user={row} size="size-9" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-foreground" title={row.full_name}>
-              {row.full_name}
-              {isSelf && <span className="ml-1.5 text-xs font-medium text-muted-foreground">(you)</span>}
-            </p>
-            <p className="truncate text-xs font-medium text-muted-foreground" title={row.email}>
-              {row.email}
-            </p>
-          </div>
-        </div>
+        <UserIdentity row={row} isSelf={actions.isSelf} />
       </td>
 
       <td className="px-4 py-3.5">
-        <Select
-          value={row.role}
-          onChange={(event) => onRoleChange(event.target.value as UserRole)}
-          disabled={isSelf || busy}
-          aria-label={`Role for ${row.full_name}`}
-          className="h-9 text-xs"
-        >
-          <option value="owner">{ROLE_LABEL.owner}</option>
-          <option value="staff">{ROLE_LABEL.staff}</option>
-          <option value="viewer">{ROLE_LABEL.viewer}</option>
-        </Select>
+        <RoleSelect row={row} actions={actions} />
       </td>
 
       <td className="px-4 py-3.5">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset",
-            row.is_active
-              ? "bg-success/10 text-success ring-success/20"
-              : "bg-destructive/10 text-destructive ring-destructive/20",
-          )}
-        >
-          <span
-            className={cn("size-1.5 rounded-full", row.is_active ? "bg-success" : "bg-destructive")}
-          />
-          {row.is_active ? "Active" : "Suspended"}
-        </span>
+        <StatusPill active={row.is_active} />
       </td>
 
       <td className="px-4 py-3.5 text-xs font-medium text-muted-foreground">
@@ -328,80 +455,54 @@ function UserRow({ row }: { row: AdminUser }) {
 
       <td className="px-2 py-3.5">
         <div className="flex justify-end">
-          <DropdownMenu
-            trigger={(props) => (
-              <button
-                type="button"
-                {...props}
-                disabled={isSelf || busy}
-                aria-label={`Actions for ${row.full_name}`}
-                className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-40"
-              >
-                {busy ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <MoreHorizontal className="size-4" strokeWidth={2.25} />
-                )}
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                {row.is_active ? (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      close();
-                      onSuspend();
-                    }}
-                  >
-                    <ShieldOff />
-                    Suspend
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      close();
-                      onReactivate();
-                    }}
-                  >
-                    <UserCheck />
-                    Reactivate
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  destructive
-                  onClick={() => {
-                    close();
-                    setConfirmingDelete(true);
-                  }}
-                >
-                  <Trash2 />
-                  Delete user
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenu>
+          <ActionsMenu row={row} actions={actions} />
         </div>
       </td>
 
-      {confirmingDelete && (
-        <ConfirmDialog
-          title="Delete this user?"
-          description={
-            <>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold text-foreground">{row.full_name}</span>?
-              This only succeeds if they have no activity on record — otherwise, suspend
-              them instead.
-            </>
-          }
-          confirmLabel="Delete"
-          busy={deleteUser.isPending}
-          onConfirm={onDelete}
-          onCancel={() => setConfirmingDelete(false)}
-        />
-      )}
+      <DeleteConfirm row={row} actions={actions} />
     </tr>
+  );
+}
+
+/** The phone / tablet counterpart of `UserRow`. */
+function UserCard({ row }: { row: AdminUser }) {
+  const actions = useUserActions(row);
+
+  return (
+    <li className="space-y-3 px-4 py-3.5">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <UserIdentity row={row} isSelf={actions.isSelf} />
+        </div>
+        <div className="-mr-1.5 shrink-0">
+          <ActionsMenu row={row} actions={actions} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5">
+        <div className="min-w-0 flex-1">
+          <RoleSelect row={row} actions={actions} />
+        </div>
+        <StatusPill active={row.is_active} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <dt className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+            Last login
+          </dt>
+          <dd className="mt-0.5 font-medium text-foreground/90">{formatDate(row.last_login_at)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+            Created
+          </dt>
+          <dd className="mt-0.5 font-medium text-foreground/90">{formatDate(row.created_at)}</dd>
+        </div>
+      </dl>
+
+      <DeleteConfirm row={row} actions={actions} />
+    </li>
   );
 }
 

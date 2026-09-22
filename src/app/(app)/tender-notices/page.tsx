@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Tender Notices" };
 /** The notice inbox — published documents, before they are tenders. */
 export default function TenderNoticesPage() {
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
       <NoticeList />
     </div>
   );

@@ -65,29 +65,12 @@ export function TenderWorkspace() {
     scope !== undefined;
 
   const activeTab: TenderTab =
-    scope === "mine"
-      ? "mine"
-      : scope === "participated"
-        ? "participated"
-        : status === "awarded" || status === "cancelled" || status === "closed"
-          ? status
-          : "all";
+    status === "cancelled" || status === "closed" ? status : "all";
 
   function changeTab(tab: TenderTab) {
     setPage(1);
-    if (tab === "mine") {
-      setScope("mine");
-      setStatus("");
-    } else if (tab === "participated") {
-      setScope("participated");
-      setStatus("");
-    } else if (tab === "awarded" || tab === "cancelled" || tab === "closed") {
-      setScope(undefined);
-      setStatus(tab);
-    } else {
-      setScope(undefined);
-      setStatus("");
-    }
+    setScope(undefined);
+    setStatus(tab === "all" ? "" : tab);
   }
 
   function changeStatus(next: TenderDisplayStatus | "") {
@@ -123,18 +106,18 @@ export function TenderWorkspace() {
   }
 
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Tenders
+            Active Tenders
           </h1>
           <p className="text-sm font-medium text-muted-foreground">
             Manage government and private tenders, required products, and supplier sourcing.
           </p>
         </div>
         {!creating && (
-          <Button onClick={() => setCreating(true)}>
+          <Button onClick={() => setCreating(true)} className="w-full sm:w-auto">
             <Plus strokeWidth={2.25} />
             New Tender
           </Button>
@@ -180,7 +163,7 @@ export function TenderWorkspace() {
         />
 
         {total > 0 && (
-          <div className="border-t border-border/60 px-4 py-4 sm:px-5">
+          <div className="border-t border-border/60 px-3 py-4 sm:px-5">
             <ResultsPagination
               page={data?.page ?? page}
               pageCount={data?.pages ?? 1}

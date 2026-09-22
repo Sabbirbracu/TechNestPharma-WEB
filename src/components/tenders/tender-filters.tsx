@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ListFilter, Search } from "lucide-react";
+import { ChevronDown, ListFilter, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import {
   AUTHORITY_TYPE_OPTIONS,
   DISPLAY_STATUS_OPTIONS,
@@ -42,6 +43,9 @@ export function TenderFilters({
   onStatusChange: (next: TenderDisplayStatus | "") => void;
 }) {
   const [draft, setDraft] = useState(value);
+  // Phones only: the fields below the search fold behind a toggle, or the
+  // filter card alone fills the first screen. From lg they are always shown.
+  const [open, setOpen] = useState(false);
 
   const dirty =
     draft.q !== value.q ||
@@ -56,6 +60,12 @@ export function TenderFilters({
     value.closingTo !== "" ||
     status !== "";
 
+  const activeCount = [
+    value.authorityType,
+    value.closingFrom || value.closingTo,
+    status,
+  ].filter(Boolean).length;
+
   const apply = () => onChange(draft);
 
   const clear = () => {
@@ -65,15 +75,18 @@ export function TenderFilters({
   };
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_150px_150px_260px_auto] lg:items-end">
-        <div className="relative">
+    <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm sm:p-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_150px_150px_260px_auto] lg:items-end">
+        <div className="col-span-2 flex gap-2 lg:col-span-1">
+        <div className="relative min-w-0 flex-1">
           <Input
             value={draft.q}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter") apply();
             }}
+            type="search"
+            enterKeyHint="search"
             placeholder="Search by title, reference, authority…"
             aria-label="Search tenders"
             className="pr-10"
@@ -84,7 +97,37 @@ export function TenderFilters({
             strokeWidth={2}
           />
         </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen((current) => !current)}
+            aria-expanded={open}
+            aria-controls="tender-filter-fields"
+            aria-label="Show filters"
+            className={cn(
+              "shrink-0 px-3 lg:hidden",
+              activeCount > 0 && "border-primary/50 text-primary",
+            )}
+          >
+            <SlidersHorizontal />
+            {activeCount > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 text-[11px] font-bold tabular-nums">
+                {activeCount}
+              </span>
+            )}
+            <ChevronDown className={cn("opacity-60 transition-transform", open && "rotate-180")} />
+          </Button>
+        </div>
 
+        {/* `contents` from lg: these four sit directly in the parent grid
+            there, exactly as before. Below lg they are one foldable block. */}
+        <div
+          id="tender-filter-fields"
+          className={cn(
+            "col-span-2 grid-cols-2 gap-3 sm:gap-4 lg:contents",
+            open ? "grid" : "hidden",
+          )}
+        >
         <Field label="Status" htmlFor="tender-status">
           <Select
             id="tender-status"
@@ -122,7 +165,7 @@ export function TenderFilters({
           </Select>
         </Field>
 
-        <Field label="Closing Date">
+        <Field label="Closing Date" className="col-span-2 lg:col-span-1">
           <div className="flex items-center gap-1.5">
             <input
               type="date"
@@ -146,7 +189,7 @@ export function TenderFilters({
           </div>
         </Field>
 
-        <div className="flex items-center gap-2.5 lg:justify-end">
+        <div className="col-span-2 flex items-center gap-2.5 lg:col-span-1 lg:justify-end">
           <Button
             type="button"
             variant="ghost"
@@ -166,6 +209,7 @@ export function TenderFilters({
             <ListFilter strokeWidth={2.25} />
           </Button>
         </div>
+        </div>
       </div>
     </div>
   );
@@ -174,14 +218,16 @@ export function TenderFilters({
 function Field({
   label,
   htmlFor,
+  className,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className={cn("min-w-0 space-y-1.5", className)}>
       <label
         htmlFor={htmlFor}
         className="block text-xs font-semibold text-muted-foreground"

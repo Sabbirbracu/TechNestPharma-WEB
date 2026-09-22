@@ -24,7 +24,7 @@ export function SourceDocument({ notice }: { notice: TenderNoticeDetail }) {
   const filename = notice.original_filename ?? "notice.pdf";
 
   return (
-    <div className="space-y-3 p-4">
+    <div className="space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
@@ -44,21 +44,26 @@ export function SourceDocument({ notice }: { notice: TenderNoticeDetail }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Phone browsers render an embedded PDF poorly (often one page, no
+            zoom), so here "Open" is the main way in — full width, not a
+            corner button. */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none"
             disabled={!url}
             onClick={() => url && window.open(url, "_blank", "noopener")}
           >
             <ExternalLink />
-            Open in new tab
+            Open<span className="hidden sm:inline"> in new tab</span>
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none"
             disabled={!url}
             onClick={() => {
               if (!url) return;
@@ -82,7 +87,7 @@ export function SourceDocument({ notice }: { notice: TenderNoticeDetail }) {
         filename={filename}
         isPending={isPending}
         error={error}
-        className="h-[calc(100vh-13rem)] min-h-[560px]"
+        className="h-[70vh] min-h-[420px] sm:h-[calc(100vh-13rem)] sm:min-h-[560px]"
       />
     </div>
   );

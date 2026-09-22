@@ -87,7 +87,7 @@ export function Header({
               <TitleEditor notice={notice} onDone={() => setEditingTitle(false)} />
             ) : (
               <>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                <h1 className="min-w-0 text-xl font-bold tracking-tight break-words text-foreground sm:text-2xl">
                   {notice.title}
                 </h1>
                 {/* The title defaults to the uploaded filename, which is rarely
@@ -134,7 +134,8 @@ export function Header({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* On a phone the actions take the full width under the title. */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           {/* Extract, never RE-extract. A second reading of the same page
               replaces the first — confirmed mappings and supplier ticks
               included — so the button disappears once there is review work to
@@ -145,6 +146,7 @@ export function Header({
               type="button"
               variant="outline"
               size="sm"
+              className="flex-1 sm:flex-none"
               onClick={runExtract}
               disabled={extract.isPending}
             >
@@ -162,6 +164,7 @@ export function Header({
                — the brand's own role for that accent (globals.css §palette). */
             variant="success"
             size="sm"
+            className="flex-1 sm:flex-none"
             onClick={runConfirm}
             disabled={confirm.isPending || readiness.kind !== "ready"}
             /* The button says what it will do; when it cannot, it says why
@@ -179,7 +182,7 @@ export function Header({
             )}
             {readiness.kind === "live"
               ? "Tenders Created"
-              : "Confirm & Create Tenders"}
+              : "Confirm All Tenders"}
           </Button>
         </div>
       </div>

@@ -10,7 +10,9 @@ export function NewCompanyButton() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      {/* Same width as Export, on both layouts: two equal halves on a phone,
+          a matched pair on desktop. */}
+      <Button onClick={() => setOpen(true)} className="w-full sm:w-44">
         <Plus />
         New company
       </Button>

@@ -92,9 +92,9 @@ export function CreateUserDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-user-title"
-        className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl"
+        className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
       >
-        <div className="flex items-center gap-3 border-b border-border px-6 py-4">
+        <div className="flex items-center gap-3 border-b border-border px-5 py-4 sm:px-6">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <UserPlus className="size-[18px]" strokeWidth={2} />
           </span>
@@ -112,7 +112,7 @@ export function CreateUserDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {fallback ? (
-          <div className="space-y-4 px-6 py-6">
+          <div className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
             <div
               role="alert"
               className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"
@@ -145,7 +145,7 @@ export function CreateUserDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ) : (
-          <form onSubmit={submit} className="space-y-4 px-6 py-6">
+          <form onSubmit={submit} className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
             {error && (
               <div
                 role="alert"

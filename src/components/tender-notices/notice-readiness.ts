@@ -9,7 +9,7 @@ export type Readiness = {
 };
 
 /**
- * Whether "Confirm & Create Tenders" would succeed, worked out on the client
+ * Whether "Confirm All Tenders" would succeed, worked out on the client
  * from the same two rules the server enforces in `TenderNoticeService.confirm`:
  * a notice needs tenders, and every tender needs a reference number. Unmapped
  * items deliberately do NOT block — a notice routinely lists things the client

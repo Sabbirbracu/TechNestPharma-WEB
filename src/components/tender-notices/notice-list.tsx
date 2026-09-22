@@ -1,16 +1,57 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, ScanLine } from "lucide-react";
+import {
+  ArrowDownWideNarrow,
+  LayoutGrid,
+  List,
+  Loader2,
+  ScanLine,
+  Trash2,
+  X,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
-import { SelectionBar } from "@/components/ui/selection-bar";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/empty-state";
 import { useDeleteNotice, useTenderNotices } from "@/lib/queries";
-import { NoticeRow } from "./notice-row";
+import { NoticeCard, NoticeRow, publishedSortKey } from "./notice-row";
+import type { TenderNoticeListItem } from "@/types/api";
 import { SourceStatusBand } from "./source-status-band";
 import { UploadButton } from "./notice-upload-button";
+
+type SortKey = "published:desc" | "published:asc" | "title:asc" | "tenders:desc" | "mapped:asc";
+
+const SORT_LABEL: Record<SortKey, string> = {
+  "published:desc": "Published Date (Newest)",
+  "published:asc": "Published Date (Oldest)",
+  "title:asc": "Title (A–Z)",
+  "tenders:desc": "Most Tenders",
+  "mapped:asc": "Least Mapped",
+};
+
+/** Client-side: the inbox loads one page of 50, all of which is on screen. */
+function sortNotices(notices: TenderNoticeListItem[], sort: SortKey) {
+  const ratio = (n: TenderNoticeListItem) =>
+    n.item_count > 0 ? n.mapped_count / n.item_count : 1;
+  const sorted = [...notices];
+  switch (sort) {
+    case "published:desc":
+      return sorted.sort((a, b) => publishedSortKey(b).localeCompare(publishedSortKey(a)));
+    case "published:asc":
+      return sorted.sort((a, b) => publishedSortKey(a).localeCompare(publishedSortKey(b)));
+    case "title:asc":
+      return sorted.sort((a, b) => a.title.localeCompare(b.title));
+    case "tenders:desc":
+      return sorted.sort((a, b) => b.tender_count - a.tender_count);
+    case "mapped:asc":
+      return sorted.sort((a, b) => ratio(a) - ratio(b));
+  }
+}
 
 /**
  * The notice inbox — one row per published document.
@@ -25,11 +66,13 @@ export function NoticeList() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sort, setSort] = useState<SortKey>("published:desc");
+  const [view, setView] = useState<"list" | "grid">("list");
   const { data, isPending } = useTenderNotices({ page: 1, size: 50 });
   const deleteNotice = useDeleteNotice();
   const notices = data?.items ?? [];
 
-  const filtered = query.trim()
+  const matching = query.trim()
     ? notices.filter((notice) =>
         [notice.title, notice.source_name, notice.original_filename]
           .filter(Boolean)
@@ -38,6 +81,7 @@ export function NoticeList() {
           ),
       )
     : notices;
+  const filtered = sortNotices(matching, sort);
 
   const visibleIds = filtered.map((notice) => notice.id);
   const selectedVisible = visibleIds.filter((id) => selected.has(id));
@@ -101,9 +145,9 @@ export function NoticeList() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1 basis-64">
           <h1 className="text-lg font-bold text-foreground">Tender Notices</h1>
           <p className="mt-0.5 text-xs font-medium text-muted-foreground">
             Published notices captured from procuring authorities. Each one
@@ -121,7 +165,7 @@ export function NoticeList() {
         value={query}
         onChange={(event) => changeQuery(event.target.value)}
         placeholder="Search notices by title, source, or filename…"
-        className="max-w-md"
+        className="w-full sm:max-w-md"
       />
 
       {isPending ? (
@@ -140,29 +184,130 @@ export function NoticeList() {
           }
         />
       ) : (
-        <div className="space-y-2">
-          <SelectionBar
-            total={filtered.length}
-            count={selected.size}
-            allSelected={allVisibleSelected}
-            someSelected={selectedVisible.length > 0 && !allVisibleSelected}
-            onToggleAll={toggleAllVisible}
-            onClear={() => setSelected(new Set())}
-            onDelete={() => setConfirming(true)}
-            deleting={deleting}
-            itemLabel="notice"
-          />
-
-          <ul className="space-y-2">
-            {filtered.map((notice) => (
-              <NoticeRow
-                key={notice.id}
-                notice={notice}
-                selected={selected.has(notice.id)}
-                onToggle={() => toggleRow(notice.id)}
+        <div className="space-y-3">
+          <div
+            className={cn(
+              "flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card px-3.5 py-3 shadow-sm transition sm:px-5",
+              selected.size > 0 && "border-primary/30 bg-primary/[0.04]",
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <Checkbox
+                checked={allVisibleSelected}
+                indeterminate={selectedVisible.length > 0 && !allVisibleSelected}
+                onChange={toggleAllVisible}
+                aria-label="Select all notices"
               />
-            ))}
-          </ul>
+              <span className="text-sm font-semibold text-foreground">
+                {selected.size > 0 ? (
+                  <>
+                    <span className="tabular-nums">{selected.size}</span>{" "}
+                    {selected.size === 1 ? "notice" : "notices"} selected
+                  </>
+                ) : (
+                  <>
+                    <span className="tabular-nums">{filtered.length}</span>{" "}
+                    {filtered.length === 1 ? "notice" : "notices"} found
+                  </>
+                )}
+              </span>
+              {selected.size > 0 && (
+                <>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setConfirming(true)}
+                    disabled={deleting}
+                    className="h-7 text-xs"
+                  >
+                    {deleting ? (
+                      <Loader2 className="animate-spin" strokeWidth={2.25} />
+                    ) : (
+                      <Trash2 strokeWidth={2.25} />
+                    )}
+                    Delete<span className="hidden sm:inline"> selected</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelected(new Set())}
+                    disabled={deleting}
+                    className="h-7 text-xs"
+                  >
+                    <X strokeWidth={2.25} />
+                    Clear
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* On a phone this group takes its own line: the sort select
+                stretches, and the label text gives way to the icon. */}
+            <div className="flex w-full items-center gap-3 sm:w-auto sm:flex-wrap">
+              <label className="flex min-w-0 flex-1 items-center gap-2.5 sm:flex-none [&>div]:min-w-0 [&>div]:flex-1">
+                <ArrowDownWideNarrow
+                  className="size-4 text-muted-foreground"
+                  strokeWidth={2}
+                />
+                <span className="hidden whitespace-nowrap text-sm font-medium text-foreground sm:inline">
+                  Sort by
+                </span>
+                <Select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value as SortKey)}
+                  aria-label="Sort notices"
+                  className="h-10 w-full sm:min-w-52"
+                >
+                  {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+                    <option key={key} value={key}>
+                      {SORT_LABEL[key]}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
+              <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-sm">
+                <ViewToggle
+                  active={view === "list"}
+                  onClick={() => setView("list")}
+                  label="List view"
+                  icon={<List className="size-4" strokeWidth={2.25} />}
+                />
+                <ViewToggle
+                  active={view === "grid"}
+                  onClick={() => setView("grid")}
+                  label="Grid view"
+                  icon={<LayoutGrid className="size-4" strokeWidth={2.25} />}
+                />
+              </div>
+            </div>
+          </div>
+
+          {view === "list" ? (
+            <ul className="space-y-3">
+              {filtered.map((notice) => (
+                <NoticeRow
+                  key={notice.id}
+                  notice={notice}
+                  selected={selected.has(notice.id)}
+                  onToggle={() => toggleRow(notice.id)}
+                />
+              ))}
+            </ul>
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((notice) => (
+                <NoticeCard
+                  key={notice.id}
+                  notice={notice}
+                  selected={selected.has(notice.id)}
+                  onToggle={() => toggleRow(notice.id)}
+                />
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -183,5 +328,35 @@ export function NoticeList() {
         />
       )}
     </div>
+  );
+}
+
+function ViewToggle({
+  active,
+  onClick,
+  label,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-pressed={active}
+      className={cn(
+        "rounded-lg p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+      )}
+    >
+      {icon}
+    </button>
   );
 }

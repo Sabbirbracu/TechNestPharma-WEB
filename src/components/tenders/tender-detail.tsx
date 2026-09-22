@@ -56,9 +56,15 @@ import {
   useUpdateTender,
 } from "@/lib/queries";
 import { MATERIAL_TYPE_LABEL, flagFor } from "@/lib/search-facets";
+import { shortReference } from "@/lib/tender-reference";
+import { DeleteTenderDescription } from "./delete-tender-description";
 import { cn } from "@/lib/utils";
 import { STATUS_STYLES } from "@/components/sourcing/sourcing-taxonomy";
 import { StartEnquiryDialog, type EnquiryTarget } from "@/components/tenders/start-enquiry-dialog";
+import {
+  MultiProductEnquiryDialog,
+  type EnquiryProduct,
+} from "@/components/enquiry/multi-product-enquiry-dialog";
 import type {
   ActivityAction,
   ActivityEntry,
@@ -146,8 +152,9 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
               authority reads the same here as on the notice screens. */}
           <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm font-medium text-muted-foreground">
             <BuyerBadge buyerName={tender.buyer_name} />
-            <span>
-              {tender.reference_no ?? "No reference number on file"}
+            {/* Short here; the full reference is in the details panel below. */}
+            <span title={tender.reference_no ?? undefined}>
+              {shortReference(tender.reference_no) ?? "No reference number on file"}
             </span>
           </p>
         </div>
@@ -278,7 +285,11 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
 
           <div className="p-5">
             {tab === "shortlist" && (
-              <ShortlistedProductsPanel tenderId={tenderId} items={tender.shortlists} />
+              <ShortlistedProductsPanel
+                tenderId={tenderId}
+                tenderReference={tender.reference_no ?? tender.name}
+                items={tender.shortlists}
+              />
             )}
             {tab === "details" && (
               <TenderDetailsPanel
@@ -302,19 +313,20 @@ export function TenderDetail({ tenderId }: { tenderId: number }) {
         <ConfirmDialog
           title="Delete this tender?"
           description={
-            <>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold text-foreground">
-                &quot;{tender.name}&quot;
-              </span>
-              ? This cannot be undone from here.
-            </>
+            <DeleteTenderDescription
+              label={shortReference(tender.reference_no) ?? tender.name}
+              fromNotice={tender.tender_notice_id !== null ? 1 : 0}
+              typedIn={tender.tender_notice_id !== null ? 0 : 1}
+            />
           }
           confirmLabel="Delete"
           busy={deleteTender.isPending}
           onConfirm={() => {
             deleteTender.mutate(tenderId, {
-              onSuccess: () => router.push("/tenders"),
+              onSuccess: (result) => {
+                toast.success(result.detail);
+                router.push("/tenders");
+              },
             });
           }}
           onCancel={() => setConfirmingDelete(false)}
@@ -486,15 +498,22 @@ function downloadCsv(filename: string, csv: string): void {
 
 /** Identifies a (product, supplier) pair regardless of which table it's
  *  looked up in — a tender item and a sourcing request key the same way. */
+/** A supplier's enquiry line for one product on this tender. */
+type SourcedLine = { status: SourcingStatus; inquiryId: number | null };
+
 function sourcingKey(productId: number, companyId: number): string {
   return `${productId}:${companyId}`;
 }
 
 function ShortlistedProductsPanel({
   tenderId,
+  tenderReference,
   items,
 }: {
   tenderId: number;
+  /** Printed against every line of a grouped enquiry, so the supplier knows
+   *  which bid they are quoting. Falls back to the tender's name. */
+  tenderReference: string;
   items: TenderShortlist[];
 }) {
   const [filter, setFilter] = useState("");
@@ -512,9 +531,12 @@ function ShortlistedProductsPanel({
     size: 100,
   });
   const sourcedStatus = useMemo(() => {
-    const map = new Map<string, SourcingStatus>();
+    const map = new Map<string, SourcedLine>();
     for (const request of sourcingData?.items ?? []) {
-      map.set(sourcingKey(request.product.id, request.company.id), request.status);
+      map.set(sourcingKey(request.product.id, request.company.id), {
+        status: request.status,
+        inquiryId: request.inquiry_id,
+      });
     }
     return map;
   }, [sourcingData]);
@@ -616,7 +638,12 @@ function ShortlistedProductsPanel({
         </p>
       ) : (
         <>
-          <ShortlistTable groups={pageGroups} tenderId={tenderId} sourcedStatus={sourcedStatus} />
+          <ShortlistTable
+            groups={pageGroups}
+            tenderId={tenderId}
+            tenderReference={tenderReference}
+            sourcedStatus={sourcedStatus}
+          />
           <ResultsPagination
             page={page}
             pageCount={pageCount}
@@ -638,11 +665,13 @@ function ShortlistedProductsPanel({
 function ShortlistTable({
   groups,
   tenderId,
+  tenderReference,
   sourcedStatus,
 }: {
   groups: ProductGroupData[];
   tenderId: number;
-  sourcedStatus: Map<string, SourcingStatus>;
+  tenderReference: string;
+  sourcedStatus: Map<string, SourcedLine>;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border/60">
@@ -665,6 +694,7 @@ function ShortlistTable({
               key={group.productId}
               group={group}
               tenderId={tenderId}
+              tenderReference={tenderReference}
               isLastGroup={groupIndex === groups.length - 1}
               sourcedStatus={sourcedStatus}
             />
@@ -691,23 +721,33 @@ function ShortlistTable({
 function ProductRows({
   group,
   tenderId,
+  tenderReference,
   isLastGroup,
   sourcedStatus,
 }: {
   group: ProductGroupData;
   tenderId: number;
+  tenderReference: string;
   isLastGroup: boolean;
-  sourcedStatus: Map<string, SourcingStatus>;
+  sourcedStatus: Map<string, SourcedLine>;
 }) {
   const removeItem = useRemoveTenderShortlist();
   const router = useRouter();
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [dialogTargets, setDialogTargets] = useState<EnquiryTarget[] | null>(null);
+  // The other direction from `dialogTargets`: that one asks several suppliers
+  // about this product, this one asks one supplier about several products.
+  const [groupedTarget, setGroupedTarget] = useState<{
+    companyId: number;
+    companyName: string;
+    country: string | null;
+    product: EnquiryProduct;
+  } | null>(null);
   const materialTypes = new Set(group.items.map((item) => item.material_type).filter(Boolean));
 
   function statusOf(item: TenderShortlist): SourcingStatus | null {
     if (!item.company_id) return null;
-    return sourcedStatus.get(sourcingKey(group.productId, item.company_id)) ?? null;
+    return sourcedStatus.get(sourcingKey(group.productId, item.company_id))?.status ?? null;
   }
 
   function toggleChecked(itemId: number) {
@@ -851,12 +891,54 @@ function ProductRows({
                 >
                   {(close) => (
                     <>
+                      {companyId !== null && (
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              close();
+                              setGroupedTarget({
+                                companyId,
+                                companyName: item.company_name ?? "Unnamed supplier",
+                                country: item.country,
+                                product: {
+                                  key: `${group.productId}-${tenderId}`,
+                                  productId: group.productId,
+                                  productName: group.productName,
+                                  casNumber: group.casNumber,
+                                  tenderId,
+                                  tenderReference,
+                                  // The dialog fetches what else this supplier
+                                  // matches; the line we started from is by
+                                  // definition the one on screen.
+                                  alreadyRequested: false,
+                                  defaultQuantity: item.quantity,
+                                  defaultQuantityUnit: item.quantity_unit,
+                                  specification: item.specification,
+                                  packing: item.packing,
+                                  supplierProductId: item.supplier_product_id,
+                                },
+                              });
+                            }}
+                          >
+                            <Send />
+                            Send enquiry…
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       {status && (
                         <>
                           <DropdownMenuItem
                             onClick={() => {
                               close();
-                              router.push("/sourcing");
+                              const inquiryId = sourcedStatus.get(
+                                sourcingKey(group.productId, companyId!),
+                              )?.inquiryId;
+                              router.push(
+                                inquiryId
+                                  ? `/supplier-enquiries/${inquiryId}`
+                                  : "/supplier-enquiries",
+                              );
                             }}
                           >
                             <Send />
@@ -915,6 +997,18 @@ function ProductRows({
             </div>
           </td>
         </tr>
+      )}
+
+      {groupedTarget && (
+        <MultiProductEnquiryDialog
+          open
+          onClose={() => setGroupedTarget(null)}
+          companyId={groupedTarget.companyId}
+          companyName={groupedTarget.companyName}
+          companyCountry={groupedTarget.country}
+          initialProduct={groupedTarget.product}
+          onCreated={() => setGroupedTarget(null)}
+        />
       )}
 
       {dialogTargets && (

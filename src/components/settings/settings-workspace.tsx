@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -132,8 +132,10 @@ export function SettingsWorkspace() {
         </p>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
-        <nav aria-label="Settings sections" className="space-y-1.5">
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
+        <MobileTabStrip active={tab} onSelect={selectTab} />
+
+        <nav aria-label="Settings sections" className="hidden space-y-1.5 lg:block">
           {TABS.map((entry) => (
             <TabButton
               key={entry.key}
@@ -211,6 +213,52 @@ function useInitialTab(): TabKey {
 /* Tab list                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/** Below lg the seven-row rail would push every section a full phone screen
+ *  down, so it becomes one swipeable line of compact tabs. */
+function MobileTabStrip({
+  active,
+  onSelect,
+}: {
+  active: TabKey;
+  onSelect: (key: TabKey) => void;
+}) {
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  // A `?tab=` link can open on a tab that starts off-screen to the right.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [active]);
+
+  return (
+    <nav
+      aria-label="Settings sections"
+      className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] sm:-mx-4 sm:px-4 lg:hidden [&::-webkit-scrollbar]:hidden"
+    >
+      {TABS.map(({ key, label, icon: Icon }) => {
+        const selected = key === active;
+        return (
+          <button
+            key={key}
+            ref={selected ? activeRef : undefined}
+            type="button"
+            onClick={() => onSelect(key)}
+            aria-current={selected ? "page" : undefined}
+            className={cn(
+              "flex shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              selected
+                ? "border-primary/30 bg-primary/[0.08] text-primary"
+                : "border-border/60 bg-card text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="size-4" strokeWidth={2} />
+            {label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function TabButton({
   active,
   label,
@@ -279,7 +327,7 @@ export function SettingsCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm sm:p-6">
+    <section className="min-w-0 rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-6">
       <div className="flex items-start gap-3">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
           <Icon className="size-[18px]" strokeWidth={2} />
@@ -289,7 +337,7 @@ export function SettingsCard({
           <p className="mt-0.5 text-xs font-medium text-muted-foreground">{description}</p>
         </div>
       </div>
-      <div className="mt-5 space-y-4">{children}</div>
+      <div className="mt-4 space-y-4 sm:mt-5">{children}</div>
     </section>
   );
 }
@@ -354,7 +402,7 @@ function ProfileCard({
           </div>
         </Field>
       </div>
-      <div className="flex items-center justify-between border-t border-border/60 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
         <span className="text-xs font-semibold text-muted-foreground">
           Role: {role ? (ROLE_LABEL[role] ?? role) : "—"}
         </span>
@@ -530,12 +578,12 @@ function NotificationsCard({
       title="Notifications"
       description="Choose email alerts and your in-app notification sound"
     >
-      <label className="flex items-center gap-3 text-sm font-medium text-foreground">
-        <Checkbox checked={followUp} onChange={() => setFollowUp((v) => !v)} />
+      <label className="flex items-start gap-3 text-sm font-medium text-foreground">
+        <Checkbox className="mt-0.5" checked={followUp} onChange={() => setFollowUp((v) => !v)} />
         Follow-up reminders for open sourcing enquiries
       </label>
-      <label className="flex items-center gap-3 text-sm font-medium text-foreground">
-        <Checkbox checked={quotation} onChange={() => setQuotation((v) => !v)} />
+      <label className="flex items-start gap-3 text-sm font-medium text-foreground">
+        <Checkbox className="mt-0.5" checked={quotation} onChange={() => setQuotation((v) => !v)} />
         A supplier sends a new quotation
       </label>
       <p className="rounded-lg bg-secondary/40 px-3 py-2 text-[11px] font-medium text-muted-foreground">
@@ -577,8 +625,8 @@ function NotificationSoundSettings() {
       <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
         In-app sound
       </legend>
-      <label className="flex items-center gap-3 text-sm font-medium text-foreground">
-        <Checkbox checked={soundOn} onChange={() => setSoundEnabled(!soundOn)} />
+      <label className="flex items-start gap-3 text-sm font-medium text-foreground">
+        <Checkbox className="mt-0.5" checked={soundOn} onChange={() => setSoundEnabled(!soundOn)} />
         Play a sound when a new notification arrives
       </label>
       <p className="text-xs font-medium leading-relaxed text-muted-foreground">

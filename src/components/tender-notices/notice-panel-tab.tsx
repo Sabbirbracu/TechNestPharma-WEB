@@ -28,14 +28,14 @@ export function PanelTab({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "inline-flex items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-bold transition-all",
+        "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-2 text-[13px] font-bold transition-all sm:flex-none sm:gap-2 sm:px-3.5 sm:text-sm",
         active
           ? "bg-card text-foreground shadow-sm ring-1 ring-border/60"
           : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
       )}
     >
       <Icon
-        className={cn("size-4", active ? "text-primary" : "text-muted-foreground")}
+        className={cn("hidden size-4 min-[400px]:block", active ? "text-primary" : "text-muted-foreground")}
         strokeWidth={2.25}
       />
       {children}

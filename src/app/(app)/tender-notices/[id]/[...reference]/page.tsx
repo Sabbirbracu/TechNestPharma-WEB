@@ -28,7 +28,8 @@ export default async function TenderReviewPage({
     // Wider than the notice screen: the item table carries raw name,
     // specification, matched product, confidence and a supplier list, and it
     // is the reason this page exists at all.
-    <div className="w-full max-w-none px-4 py-4 sm:px-6 sm:py-6">
+    // No padding of its own on a phone: the shell's gutter is enough.
+    <div className="w-full max-w-none pb-4 sm:px-6 sm:py-6">
       <TenderReview
         noticeId={noticeId}
         reference={referenceFromSegments(reference)}

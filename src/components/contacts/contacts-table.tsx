@@ -176,11 +176,11 @@ export function ContactsTable() {
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-4">
         <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="relative sm:col-span-2 lg:col-span-1">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div className="relative col-span-2 lg:col-span-1">
               <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
@@ -239,7 +239,12 @@ export function ContactsTable() {
             </Select>
 
             {filtered && (
-              <Button type="button" variant="outline" onClick={resetFilters}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetFilters}
+                className="col-span-2 lg:col-span-1"
+              >
                 Clear Filters
               </Button>
             )}
@@ -269,7 +274,7 @@ export function ContactsTable() {
                 Export
               </Button>
 
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm">
+              <div className="hidden items-center gap-1 rounded-lg border border-border bg-card p-0.5 shadow-sm md:flex">
                 <ViewToggle
                   active={view === "list"}
                   onClick={() => setView("list")}
@@ -317,15 +322,19 @@ export function ContactsTable() {
                 isFetching && "pointer-events-none opacity-60",
               )}
             >
-              {view === "list" ? (
-                <ListView
-                  rows={rows}
-                  activeId={activeId}
-                  onSelect={setSelectedId}
-                />
-              ) : (
+              {/* A five-column table cannot be read on a phone, so below `md`
+                  the cards are the only view and the toggle above is hidden.
+                  From `md` up the toggle decides. */}
+              <div className="md:hidden">
                 <CardView rows={rows} activeId={activeId} onSelect={setSelectedId} />
-              )}
+              </div>
+              <div className="hidden md:block">
+                {view === "list" ? (
+                  <ListView rows={rows} activeId={activeId} onSelect={setSelectedId} />
+                ) : (
+                  <CardView rows={rows} activeId={activeId} onSelect={setSelectedId} />
+                )}
+              </div>
             </div>
           )}
 
@@ -565,7 +574,9 @@ function CardView({
   onSelect: (id: number) => void;
 }) {
   return (
-    <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
+    // `grid-cols-1` caps the implicit column at the card's width; an `auto`
+    // track sizes to the longest contact or company name and scrolls the page.
+    <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
       {rows.map((row) => {
         const email = row.channels.find((channel) => channel.channel === "email");
         const phone = row.channels.find((channel) => channel.channel === "phone");

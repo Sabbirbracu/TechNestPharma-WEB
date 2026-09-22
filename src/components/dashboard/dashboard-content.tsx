@@ -61,8 +61,8 @@ export function DashboardContent() {
         </div>
 
         {range && (
-          <span className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground shadow-sm">
-            <Calendar className="size-4 text-muted-foreground" strokeWidth={2} />
+          <span className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5 text-[11px] font-semibold text-foreground shadow-sm sm:px-3 sm:py-2 sm:text-xs">
+            <Calendar className="size-3.5 text-muted-foreground sm:size-4" strokeWidth={2} />
             <span className="tabular-nums">{range}</span>
           </span>
         )}
@@ -97,8 +97,14 @@ export function DashboardContent() {
         isPending={timeseries.isPending}
       />
 
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-5">
+      {/* One column on a phone, two on a tablet (the chart taking the full
+          width because it is the widest thing here), three on a desktop. */}
+      {/* `grid-cols-1` is load-bearing, not decoration: without it the single
+          implicit column is an `auto` track, which sizes to the widest product
+          or supplier name in the cards below and pushes the page sideways on a
+          phone. Tailwind's numbered classes are `minmax(0, 1fr)`. */}
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-12">
+        <div className="md:col-span-2 xl:col-span-5">
           <GrowthChart
             series={series}
             windowDays={windowDays}
@@ -107,15 +113,15 @@ export function DashboardContent() {
             isFetching={timeseries.isFetching}
           />
         </div>
-        <div className="md:col-span-1 xl:col-span-4">
+        <div className="xl:col-span-4">
           <TopCategories />
         </div>
-        <div className="md:col-span-1 xl:col-span-3">
+        <div className="xl:col-span-3">
           <RecentManufacturers />
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
         <RecentProducts />
         <RecentSamples
           samples={dashboard.data?.recent_samples}

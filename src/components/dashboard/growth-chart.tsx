@@ -101,8 +101,17 @@ export function GrowthChart({
   const ready =
     !isPending && series !== null && lines.length > 0 && plot.width > 0 && plot.height > 0;
 
+  /** Which day sits under a pointer or a finger, in plot coordinates. */
+  function readAt(element: HTMLElement, clientX: number) {
+    if (count < 1 || innerWidth <= 0) return;
+    const rect = element.getBoundingClientRect();
+    const ratio = (clientX - rect.left - PAD.left) / innerWidth;
+    const index = Math.round(ratio * (count - 1));
+    setHover(Math.max(0, Math.min(count - 1, index)));
+  }
+
   return (
-    <Card className="flex h-full flex-col p-5 sm:p-6">
+    <Card className="flex h-full flex-col p-4 sm:p-6">
       <div className="flex items-center gap-2">
         <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <TrendingUp className="size-4" strokeWidth={2.25} />
@@ -129,7 +138,7 @@ export function GrowthChart({
               onClick={() => onWindowChange(range.days)}
               aria-pressed={range.days === windowDays}
               className={cn(
-                "rounded-lg px-1 py-1 text-[11px] font-semibold transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                "rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:px-2",
                 range.days === windowDays
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -164,16 +173,20 @@ export function GrowthChart({
       >
         <div
           ref={plotRef}
-          className="relative w-full min-w-0 flex-1"
+          className="relative w-full min-w-0 flex-1 touch-pan-y"
           style={{ minHeight: MIN_PLOT_HEIGHT }}
-          onMouseMove={(event) => {
-            if (count < 1 || innerWidth <= 0) return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            const ratio = (event.clientX - rect.left - PAD.left) / innerWidth;
-            const index = Math.round(ratio * (count - 1));
-            setHover(Math.max(0, Math.min(count - 1, index)));
-          }}
+          onMouseMove={(event) => readAt(event.currentTarget, event.clientX)}
           onMouseLeave={() => setHover(null)}
+          // A phone has no hover, so the figures behind it were unreachable:
+          // dragging along the plot reads it instead. `touch-pan-y` keeps a
+          // vertical swipe scrolling the page rather than scrubbing the chart.
+          onTouchStart={(event) =>
+            readAt(event.currentTarget, event.touches[0]?.clientX ?? 0)
+          }
+          onTouchMove={(event) =>
+            readAt(event.currentTarget, event.touches[0]?.clientX ?? 0)
+          }
+          onTouchEnd={() => setHover(null)}
         >
           {!ready ? (
             <div className="size-full animate-pulse rounded-xl bg-secondary" />
@@ -303,7 +316,7 @@ export function GrowthChart({
 
           {ready && active !== null && (
             <div
-              className="pointer-events-none absolute top-2 w-[142px] rounded-lg border border-border/70 bg-popover/95 p-2 shadow-lg backdrop-blur-sm"
+              className="pointer-events-none absolute top-2 w-[134px] rounded-lg sm:w-[142px] border border-border/70 bg-popover/95 p-2 shadow-lg backdrop-blur-sm"
               style={{
                 left: Math.min(
                   Math.max(xAt(active) + 12, PAD.left),

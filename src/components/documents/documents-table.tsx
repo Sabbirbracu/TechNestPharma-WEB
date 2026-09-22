@@ -102,7 +102,22 @@ export function DocumentsTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* Below lg nine columns can't fit: each document becomes a card with
+          the same fields, most important first. */}
+      <ul className="divide-y divide-border/50 lg:hidden">
+        {documents.map((document) => (
+          <DocumentCard
+            key={document.id}
+            document={document}
+            onPreview={() => onPreview(document)}
+            onRename={() => onRename(document)}
+            onDelete={() => onDelete(document)}
+          />
+        ))}
+      </ul>
+
+    <div className="hidden overflow-x-auto lg:block">
       <table className="w-full min-w-[1080px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border/60 bg-secondary/50 text-left">
@@ -152,6 +167,7 @@ export function DocumentsTable({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -190,12 +206,7 @@ function Row({
   onDelete: () => void;
 }) {
   const meta = docTypeMeta(document.doc_type);
-  const unlink = useUnlinkDocument();
-  const [downloading, setDownloading] = useState(false);
-  const previewable =
-    document.mime_type.startsWith("image/") ||
-    document.mime_type === "application/pdf";
-  const added = new Date(document.created_at);
+  const added = formatAdded(document.created_at);
 
   return (
     <tr
@@ -227,14 +238,7 @@ function Row({
       </td>
 
       <td className="px-4 py-3.5 align-middle">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
-            typeChip(document.doc_type),
-          )}
-        >
-          {meta.label}
-        </span>
+        <TypeChip docType={document.doc_type} />
       </td>
 
       <td className="max-w-[220px] px-4 py-3.5 align-middle">
@@ -242,15 +246,7 @@ function Row({
       </td>
 
       <td className="px-4 py-3.5 align-middle">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
-            SOURCE_CHIP[document.source] ?? SOURCE_CHIP.manual,
-          )}
-        >
-          <SourceGlyph source={document.source} />
-          {SOURCE_LABELS[document.source] ?? document.source}
-        </span>
+        <SourceChip source={document.source} />
       </td>
 
       <td className="px-4 py-3.5 align-middle text-[13px] font-medium tabular-nums whitespace-nowrap text-muted-foreground">
@@ -259,17 +255,10 @@ function Row({
 
       <td className="px-4 py-3.5 align-middle whitespace-nowrap">
         <span className="block text-[13px] font-medium text-foreground">
-          {added.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
+          {added.date}
         </span>
         <span className="block text-[11px] font-medium text-muted-foreground">
-          {added.toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {added.time}
         </span>
       </td>
 
@@ -306,6 +295,39 @@ function Row({
 
       <td className="px-4 py-3.5 align-middle">
         <span className="flex items-center gap-0.5">
+          <RowActions
+            document={document}
+            onPreview={onPreview}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+/** Preview, download, and the overflow menu — shared by the table row and the
+ *  mobile card. */
+function RowActions({
+  document,
+  onPreview,
+  onRename,
+  onDelete,
+}: {
+  document: DocumentItem;
+  onPreview: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const unlink = useUnlinkDocument();
+  const [downloading, setDownloading] = useState(false);
+  const previewable =
+    document.mime_type.startsWith("image/") ||
+    document.mime_type === "application/pdf";
+
+  return (
+    <>
           <IconButton
             label={`Preview ${document.title}`}
             onClick={onPreview}
@@ -402,9 +424,108 @@ function Row({
               </>
             )}
           </DropdownMenu>
+    </>
+  );
+}
+
+function formatAdded(iso: string): { date: string; time: string } {
+  const added = new Date(iso);
+  return {
+    date: added.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }),
+    time: added.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  };
+}
+
+function TypeChip({ docType }: { docType: DocumentItem["doc_type"] }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
+        typeChip(docType),
+      )}
+    >
+      {docTypeMeta(docType).label}
+    </span>
+  );
+}
+
+function SourceChip({ source }: { source: DocumentItem["source"] }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
+        SOURCE_CHIP[source] ?? SOURCE_CHIP.manual,
+      )}
+    >
+      <SourceGlyph source={source} />
+      {SOURCE_LABELS[source] ?? source}
+    </span>
+  );
+}
+
+/** The phone / tablet counterpart of `Row`. */
+function DocumentCard({
+  document,
+  onPreview,
+  onRename,
+  onDelete,
+}: {
+  document: DocumentItem;
+  onPreview: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const meta = docTypeMeta(document.doc_type);
+  const added = formatAdded(document.created_at);
+
+  return (
+    <li className="px-4 py-3.5">
+      <div className="flex items-start gap-3">
+        <FileGlyph mimeType={document.mime_type} />
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm leading-snug font-semibold break-words text-foreground">
+            {document.title}
+          </p>
+          <p className="truncate text-[11px] font-medium text-muted-foreground">
+            {meta.fullName}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <TypeChip docType={document.doc_type} />
+        <SourceChip source={document.source} />
+      </div>
+
+      <div className="mt-2.5 text-xs">
+        <RelatedTo links={document.links} />
+      </div>
+
+      <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-border/40 pt-2">
+        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+          <span className="tabular-nums">{formatBytes(document.size_bytes)}</span>
+          {" · "}
+          {added.date}
+          {" · "}
+          {document.uploaded_by ?? "System"}
+        </p>
+        <span className="-mr-2 flex shrink-0 items-center">
+          <RowActions
+            document={document}
+            onPreview={onPreview}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
         </span>
-      </td>
-    </tr>
+      </div>
+    </li>
   );
 }
 

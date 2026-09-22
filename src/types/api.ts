@@ -670,7 +670,10 @@ export type TenderShortlist = {
 export type TenderListItem = {
   id: number;
   name: string;
+  name_is_custom: boolean;
   reference_no: string | null;
+  /** Set when read out of a notice; deleting then sends it back there. */
+  tender_notice_id: number | null;
   buyer_name: string | null;
   authority_type: TenderAuthorityType | null;
   country_id: number | null;
@@ -934,7 +937,8 @@ export type SourcingStatus =
   | "selected"
   | "rejected"
   | "no_response"
-  | "cancelled";
+  | "cancelled"
+  | "unavailable";
 
 export type CommunicationChannel =
   | "email"
@@ -990,8 +994,190 @@ export type Quotation = {
   valid_until: string | null;
   specification: string | null;
   notes: string | null;
+  /** When a person approved it (or typed it). Every official quotation has
+   *  one; AI readings stay drafts until approved. */
+  verified_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Where one supplier reply's AI processing and review stand (2026-09-22).
+ *  The processing half: detected (queued) → processing → failed / no_quotation.
+ *  The review half: extracted (waiting for a person) → approved / rejected.
+ *  Only `approved` ever writes official quotations. */
+export type ReplyReadingStatus =
+  | "detected"
+  | "processing"
+  | "extracted"
+  | "failed"
+  | "no_quotation"
+  | "approved"
+  | "rejected";
+
+/** What a reply said about one requested product. */
+export type LineOutcomeKind = "quoted" | "declined" | "question" | "not_mentioned";
+
+export type LineOutcome = {
+  sourcing_request_id: number;
+  product_name: string | null;
+  outcome: LineOutcomeKind;
+  note: string | null;
+  /** Verbatim from the email — highlighted in the original. */
+  source_excerpt: string | null;
+};
+
+export type Availability = "available" | "limited" | "on_request" | "unavailable";
+
+/** One product Gemini read a quotation for, as read and as corrected. The
+ *  supplier's wording and the evidence are never editable. */
+export type ReviewItem = {
+  id: number;
+  raw_product_name: string;
+  cas_number: string | null;
+  /** {"price": "USD 4.20/kg", "moq": "MOQ 100kg", …} — verbatim. */
+  evidence: Record<string, string> | null;
+  source_excerpt: string | null;
+  product_id: number | null;
+  product_name: string | null;
+  match_method: string | null;
+  match_confidence: string | null;
+  /** The enquiry line it answers; null = not matched / not asked. */
+  sourcing_request_id: number | null;
+  requires_review: boolean;
+  review_reason: string | null;
+  /** Quoted but never asked for — offered, never added by itself. */
+  is_additional: boolean;
+  is_excluded: boolean;
+  quoted_quantity: string | null;
+  quoted_quantity_unit: string | null;
+  price_min: string | null;
+  price_max: string | null;
+  currency: string | null;
+  price_unit: string | null;
+  price_tiers: { min_quantity: number | null; quantity_unit: string | null; price: number; evidence: string | null }[] | null;
+  moq: string | null;
+  moq_unit: string | null;
+  lead_time_days: number | null;
+  lead_time_text: string | null;
+  incoterm: string | null;
+  packing: string | null;
+  payment_terms: string | null;
+  validity_days: number | null;
+  valid_until: string | null;
+  specification: string | null;
+  availability: Availability | null;
+  remarks: string | null;
+  quotation_id: number | null;
+};
+
+export type ReviewItemInput = Partial<{
+  product_id: number | null;
+  sourcing_request_id: number | null;
+  price_min: string | null;
+  price_max: string | null;
+  currency: string | null;
+  price_unit: string | null;
+  moq: string | null;
+  moq_unit: string | null;
+  lead_time_days: number | null;
+  incoterm: string | null;
+  valid_until: string | null;
+  specification: string | null;
+  availability: Availability | null;
+  remarks: string | null;
+  is_excluded: boolean;
+}>;
+
+/** A reading, as the enquiry's Communication section shows it. */
+export type ReadingBrief = {
+  status: ReplyReadingStatus;
+  extraction_error: string | null;
+  quoted: number;
+  declined: number;
+  not_mentioned: number;
+  question: number;
+  additional: number;
+  needs_review: number;
+};
+
+/** Everything the Review dialog shows for one supplier reply. */
+export type ReplyReview = {
+  communication_id: number;
+  inquiry_id: number | null;
+  company_id: number | null;
+  company_name: string | null;
+  status: ReplyReadingStatus | null;
+  contains_quotation: boolean | null;
+  analysis: {
+    summary?: string[];
+    priority?: string;
+    category?: string;
+    contains_quotation?: boolean;
+  } | null;
+  provider: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  attempts: number;
+  next_attempt_at: string | null;
+  extraction_error: string | null;
+  extracted_at: string | null;
+  reviewed_at: string | null;
+  currency: string | null;
+  valid_until: string | null;
+  notes: string | null;
+  source: {
+    id: number;
+    subject: string | null;
+    /** The full body, never a preview. */
+    body: string | null;
+    counterparty: string | null;
+    occurred_at: string;
+    has_attachments: boolean;
+    attachments: MailAttachment[];
+  };
+  line_outcomes: LineOutcome[];
+  items: ReviewItem[];
+  /** Lines this reply could be answering — for manual product matching. */
+  lines: { sourcing_request_id: number; product_id: number; product_name: string }[];
+  /** Approved quotations written from this reply. */
+  quotations: (Quotation & { product_name: string })[];
+  ai_available: boolean;
+};
+
+export type ApproveResult = {
+  quotation_ids: number[];
+  skipped: string[];
+  review: ReplyReview;
+};
+
+export type QueueSummary = { queued: number; processing: number };
+
+/** A reply's pending/failed/for-review reading, on the enquiry. */
+export type EnquiryDraft = {
+  communication_id: number;
+  occurred_at: string;
+  status: ReplyReadingStatus;
+  extraction_error: string | null;
+  next_attempt_at: string | null;
+  items: {
+    id: number;
+    product_name: string;
+    raw_product_name: string;
+    sourcing_request_id: number | null;
+    price_min: string | null;
+    price_max: string | null;
+    currency: string | null;
+    price_unit: string | null;
+    moq: string | null;
+    moq_unit: string | null;
+    lead_time_days: number | null;
+    incoterm: string | null;
+    valid_until: string | null;
+    availability: Availability | null;
+    requires_review: boolean;
+    is_additional: boolean;
+    is_excluded: boolean;
+  }[];
 };
 
 export type Communication = {
@@ -1022,6 +1208,9 @@ export type StatusHistoryEntry = {
 
 export type SourcingRequestListItem = {
   id: number;
+  /** The supplier enquiry this product line belongs to. */
+  inquiry_id: number | null;
+  tender_item_id: number | null;
   status: SourcingStatus;
   product: SourcingProductRef;
   company: SourcingCompanyRef;
@@ -1092,7 +1281,7 @@ export type MappingStatus = "unmapped" | "suggested" | "confirmed" | "skipped";
 
 /** Which tier produced a suggestion. Always shown beside the score: "84%" on
  *  its own is a number nobody can argue with. */
-export type MatchMethod = "exact" | "normalized" | "alias" | "fuzzy" | "manual";
+export type MatchMethod = "exact" | "normalized" | "alias" | "fuzzy" | "partial" | "manual";
 
 export type TenderType = "international" | "local";
 
@@ -1187,7 +1376,9 @@ export type NoticeTenderItem = {
 
 export type NoticeTender = {
   id: number;
+  /** "<first item> +N more" until someone renames it — see `name_is_custom`. */
   name: string;
+  name_is_custom: boolean;
   reference_no: string | null;
   notice_date: string | null;
   tender_type: TenderType | null;
@@ -1343,7 +1534,8 @@ export type TenderItemMappingInput = {
 };
 
 export type NoticeTenderUpdateInput = Partial<{
-  name: string;
+  /** null returns the tender to its automatic, item-derived name. */
+  name: string | null;
   reference_no: string;
   notice_date: string | null;
   tender_type: TenderType | null;
@@ -1451,6 +1643,299 @@ export type InquiryPreviewInput = {
   required_documents?: string[] | null;
   /** Written for the supplier to read — goes into the body verbatim. */
   notes?: string | null;
+};
+
+/* -- Grouped inquiries: one supplier, many products (0038) ---------------- */
+
+/** GET /sourcing/companies/{id}/tender-matches — one product this supplier is
+ *  shortlisted for on some live tender. Flat, not grouped: the dialog groups
+ *  by tender for display, but the API answers with rows. */
+export type SupplierTenderMatch = {
+  shortlist_id: number;
+  tender_id: number;
+  tender_reference: string | null;
+  tender_title: string;
+  product_id: number;
+  product_name: string;
+  cas_number: string | null;
+  quantity: string | null;
+  quantity_unit: string | null;
+  supplier_product_id: number | null;
+  /** Reported, not filtered — "we asked on Tuesday" is exactly what somebody
+   *  needs to know before asking again. */
+  already_requested: boolean;
+  existing_request_id: number | null;
+};
+
+/** One product line in a grouped inquiry. `tender_id` rides on the line
+ *  because an inquiry can span several bids — that is the point of it. */
+export type InquiryComposeItem = {
+  product_id: number;
+  tender_id?: number | null;
+  tender_item_id?: number | null;
+  supplier_product_id?: number | null;
+  required_quantity?: string | null;
+  quantity_unit?: string | null;
+  required_specification?: string | null;
+  required_packing?: string | null;
+};
+
+/** POST /sourcing/inquiries/compose — creates N sourcing requests and the one
+ *  conversation that groups them. Creates only; sending is a separate call. */
+export type InquiryComposeInput = {
+  company_id: number;
+  /** Add the products to this existing enquiry instead of opening a new one. */
+  inquiry_id?: number | null;
+  contact_person_id?: number | null;
+  items: InquiryComposeItem[];
+  required_documents?: string[];
+  notes?: string | null;
+};
+
+/** POST /mailbox/inquiry-compose-preview — the grouped email as it would go
+ *  out, rendered before anything is filed. */
+export type InquiryComposePreviewInput = {
+  company_id: number;
+  contact_person_id?: number | null;
+  items: InquiryComposeItem[];
+  required_documents?: string[];
+  notes?: string | null;
+  /** A saved email template to write it with; omitted = the built-in email. */
+  template_id?: number | null;
+};
+
+/** A saved email template (2026-09-22). Text with {{placeholders}} filled in
+ *  on the server from the enquiry, so the preview is what is sent. */
+export type EmailTemplateKind = "enquiry" | "follow_up";
+
+export type EmailTemplate = {
+  id: number;
+  name: string;
+  kind: EmailTemplateKind;
+  subject: string;
+  body: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmailTemplateInput = {
+  name: string;
+  kind: EmailTemplateKind;
+  subject: string;
+  body: string;
+  is_default: boolean;
+};
+
+export type EmailTemplateCatalog = {
+  placeholders: { name: string; description: string }[];
+  /** The built-in email written with placeholders. */
+  starters: { kind: EmailTemplateKind; subject: string; body: string }[];
+};
+
+export type InquiryLine = {
+  sourcing_request_id: number;
+  product_id: number;
+  product_name: string;
+  cas_number: string | null;
+  status: SourcingStatus;
+  tender_id: number | null;
+  tender_reference: string | null;
+  required_quantity: string | null;
+  quantity_unit: string | null;
+};
+
+/** One supplier conversation. `status` is derived from the member requests on
+ *  the server, so it can never disagree with the sourcing board. */
+export type Inquiry = {
+  id: number;
+  reference: string | null;
+  company_id: number;
+  company_name: string | null;
+  contact_person_id: number | null;
+  external_thread_id: string | null;
+  sent_at: string | null;
+  notes: string | null;
+  status: string;
+  lines: InquiryLine[];
+  created_at: string;
+  updated_at: string;
+};
+
+// --- Supplier Enquiries (2026-09-17) ----------------------------------------
+//
+// One enquiry = one supplier asked about one or more products. Each product
+// line keeps its own tender (or none — direct sourcing) and its own status;
+// the enquiry's state is derived from its lines on the server.
+
+/** GET /sourcing/companies/{id}/inquiry-suggestions */
+export type InquirySuggestion = {
+  open_inquiries: Inquiry[];
+  /** product id → the open enquiry already asking about it. */
+  already_asked: Record<string, number>;
+};
+
+export type EnquiryState =
+  | "draft"
+  | "awaiting_response"
+  | "partially_quoted"
+  | "quotation_received"
+  | "completed"
+  | "closed";
+
+export type EnquiryTab =
+  | "all"
+  | "awaiting_response"
+  | "partially_quoted"
+  | "quotation_received"
+  | "closed";
+
+export type EnquiryItemState =
+  | "pending"
+  | "requested"
+  /** The supplier answered, but not with a quote for this product. */
+  | "replied"
+  | "quoted"
+  | "selected"
+  | "rejected"
+  | "unavailable"
+  | "no_response"
+  | "cancelled";
+
+export type EnquirySupplier = {
+  id: number;
+  name: string;
+  country: string | null;
+  country_code: string | null;
+};
+
+export type EnquiryTenderRef = {
+  id: number;
+  reference: string | null;
+  name: string;
+  closing_date: string | null;
+};
+
+export type EnquiryItemBrief = {
+  id: number;
+  product_id: number;
+  product_name: string;
+  cas_number: string | null;
+  tender: EnquiryTenderRef | null;
+  status: SourcingStatus;
+  state: EnquiryItemState;
+};
+
+export type EnquiryListItem = {
+  id: number;
+  reference: string | null;
+  supplier: EnquirySupplier;
+  state: EnquiryState;
+  item_count: number;
+  quoted_count: number;
+  tender_count: number;
+  direct_count: number;
+  items: EnquiryItemBrief[];
+  reply_waiting: boolean;
+  sent_at: string | null;
+  created_at: string;
+  last_activity_at: string;
+  /** What happened last — shown under the time in Last activity. */
+  last_event: "created" | "inquiry_sent" | "supplier_replied" | "quotation_received";
+};
+
+export type EnquiryCounts = Record<EnquiryTab, number> & {
+  draft: number;
+  /** Enquiries opened since the 1st of this month. */
+  this_month: number;
+};
+
+export type EnquiryListParams = {
+  tab: EnquiryTab;
+  q: string;
+  source: "all" | "direct" | "tender";
+  sinceDays: number | null;
+  sort: "activity" | "supplier" | "-supplier";
+  page: number;
+};
+
+export type EnquiryItem = EnquiryItemBrief & {
+  tender_item_id: number | null;
+  supplier_product_id: number | null;
+  required_quantity: string | null;
+  quantity_unit: string | null;
+  required_specification: string | null;
+  sent_at: string | null;
+  first_replied_at: string | null;
+  quotation_count: number;
+  latest_quotation: Quotation | null;
+  /** What the supplier's latest read reply said about this product. */
+  reply_outcome: {
+    outcome: LineOutcomeKind;
+    note: string | null;
+    message_id: number;
+    occurred_at: string;
+  } | null;
+};
+
+export type EnquiryMessage = {
+  id: number;
+  channel: CommunicationChannel;
+  direction: CommunicationDirection;
+  occurred_at: string;
+  subject: string | null;
+  body: string | null;
+  counterparty: string | null;
+  external_thread_id: string | null;
+  sourcing_request_id: number | null;
+  product_name: string | null;
+  attachments: MailAttachment[];
+  /** Supplier messages only: how the reply was read, if it was. */
+  reading: ReadingBrief | null;
+};
+
+export type EnquiryDetail = {
+  id: number;
+  reference: string | null;
+  supplier: EnquirySupplier;
+  contact_person_id: number | null;
+  contact_name: string | null;
+  state: EnquiryState;
+  item_count: number;
+  quoted_count: number;
+  notes: string | null;
+  external_thread_id: string | null;
+  sent_at: string | null;
+  created_at: string;
+  last_activity_at: string;
+  reply_waiting: boolean;
+  items: EnquiryItem[];
+  messages: EnquiryMessage[];
+  quotations: (Quotation & { product_name: string })[];
+  /** Supplier replies with no reading yet; the page queues them on open. */
+  unread_replies: number;
+  /** Replies queued for, or being read by, the background AI worker. */
+  processing_replies: number;
+  reading_available: boolean;
+  /** Replies whose reading is pending, failed, or waiting for review. */
+  drafts: EnquiryDraft[];
+};
+
+export type QuotationInput = {
+  quoted_on?: string | null;
+  price_min?: string | null;
+  price_max?: string | null;
+  currency?: string | null;
+  price_unit?: string | null;
+  moq?: string | null;
+  moq_unit?: string | null;
+  packing?: string | null;
+  lead_time_days?: number | null;
+  incoterm?: string | null;
+  valid_until?: string | null;
+  specification?: string | null;
+  notes?: string | null;
+  source_communication_id?: number | null;
 };
 
 export type MailSendInput = {
@@ -1666,6 +2151,10 @@ export type NotificationKind =
   | "inbox_mail"
   | "follow_up_due"
   | "status_changed"
+  /** A supplier reply looks like it carries a quotation and an extracted draft
+   *  is waiting to be checked. Its own kind because it is the one bell that
+   *  asks for a specific action — open the review screen. */
+  | "quotation_detected"
   /** New tender notices arrived from a source site's scheduled fetch. */
   | "notice_fetched"
   /** A scheduled fetch could not complete. Its own kind because it reports
@@ -1773,6 +2262,16 @@ export type InboxThread = {
   sourcing_request_id: number | null;
   company_id: number | null;
   company_name: string | null;
+};
+
+/** POST /mailbox/inbox/threads/{id}/messages/{id}/assist — AI summary +
+ *  suggested replies for one received message.
+ *  Generated on request, never stored. */
+export type InboxAssist = {
+  thread_id: string;
+  message_id: string;
+  summary: string[];
+  suggested_replies: { label: string; body: string }[];
 };
 
 /** GET /mailbox/sent — one email this system sent.
@@ -1967,6 +2466,8 @@ export type DocumentStats = {
 };
 
 export type DocumentListParams = ListParams & {
+  /** Anything filed against any product line of one supplier enquiry. */
+  inquiry_id?: number;
   /** Repeatable on the wire; `toQueryString` expands the array. */
   doc_type?: DocType[];
   source?: DocSource[];

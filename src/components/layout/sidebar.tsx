@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, Loader2 } from "lucide-react";
+import { ChevronDown, LogOut, Loader2 } from "lucide-react";
 import { BrandLockup } from "@/components/brand";
 import { UserAvatar } from "@/components/user-avatar";
-import { NAV_SECTIONS } from "@/config/nav";
+import { NAV_SECTIONS, type NavItem } from "@/config/nav";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -67,41 +67,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
               {section.label}
             </p>
-            {section.items.map((item) => {
-              const active =
-                pathname === item.href ||
-                pathname.startsWith(`${item.href}/`);
-              const Icon = item.icon;
-              
-              return (
-                <Link
+            {section.items.map((item) =>
+              item.children?.length ? (
+                <NavGroup
                   key={item.href}
-                  href={item.href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "group relative flex items-center gap-3.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold tracking-tight transition-all duration-200",
-                    active
-                      ? "bg-white/10 text-white shadow-md backdrop-blur-sm"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                  )}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-white shadow-lg shadow-white/30" />
-                  )}
-                  <Icon
-                    className={cn(
-                      "size-[18px] shrink-0 transition-all duration-200",
-                      active
-                        ? "text-white scale-110"
-                        : "text-sidebar-foreground/70 group-hover:text-sidebar-foreground group-hover:scale-105",
-                    )}
-                    strokeWidth={active ? 2.5 : 2}
-                  />
-                  {item.label}
-                </Link>
-              );
-            })}
+                  item={item}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                />
+              ) : (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(pathname, item.href)}
+                  onNavigate={onNavigate}
+                />
+              ),
+            )}
           </div>
         ))}
       </div>
@@ -143,5 +125,116 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
     </nav>
+  );
+}
+
+function isActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function NavLink({
+  item,
+  active,
+  onNavigate,
+  nested = false,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate?: () => void;
+  nested?: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group relative flex items-center rounded-xl font-semibold tracking-tight transition-all duration-200",
+        nested ? "gap-3 px-3 py-2 text-[13px]" : "gap-3.5 px-3.5 py-2.5 text-sm",
+        active
+          ? "bg-white/10 text-white shadow-md backdrop-blur-sm"
+          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+      )}
+    >
+      {active && (
+        <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-white shadow-lg shadow-white/30" />
+      )}
+      <Icon
+        className={cn(
+          "shrink-0 transition-all duration-200",
+          nested ? "size-4" : "size-[18px]",
+          active
+            ? "text-white scale-110"
+            : "text-sidebar-foreground/70 group-hover:text-sidebar-foreground group-hover:scale-105",
+        )}
+        strokeWidth={active ? 2.5 : 2}
+      />
+      {item.label}
+    </Link>
+  );
+}
+
+/** A menu entry with a sub-menu (Email → Inbox, Sent). Open while the current
+ *  page is inside it; otherwise toggled by hand. */
+function NavGroup({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const inside = isActive(pathname, item.href);
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? inside;
+  const Icon = item.icon;
+  const children = item.children ?? [];
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setToggled(!open)}
+        aria-expanded={open}
+        className={cn(
+          "group relative flex w-full items-center gap-3.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold tracking-tight transition-all duration-200",
+          inside
+            ? "text-white"
+            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+        )}
+      >
+        <Icon
+          className={cn(
+            "size-[18px] shrink-0 transition-all duration-200",
+            inside
+              ? "text-white"
+              : "text-sidebar-foreground/70 group-hover:text-sidebar-foreground",
+          )}
+          strokeWidth={inside ? 2.5 : 2}
+        />
+        {item.label}
+        <ChevronDown
+          className={cn(
+            "ml-auto size-4 shrink-0 transition-transform duration-200",
+            open ? "rotate-180" : "",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="ml-5 mt-1 space-y-1 border-l border-sidebar-border/60 pl-2">
+          {children.map((child) => (
+            <NavLink
+              key={child.href}
+              item={child}
+              active={isActive(pathname, child.href)}
+              onNavigate={onNavigate}
+              nested
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

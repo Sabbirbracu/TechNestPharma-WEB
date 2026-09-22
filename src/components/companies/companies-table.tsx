@@ -135,8 +135,10 @@ export function CompaniesTable() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="w-40">
+          {/* Two to a line on a phone: Country + Type, then Status + Filters.
+              One row from `lg`, where the search box shares the line. */}
+          <div className="grid grid-cols-2 gap-2.5 lg:flex lg:flex-wrap lg:items-center">
+            <div className="w-full lg:w-40">
               <Select
                 value={countryId}
                 onChange={(event) =>
@@ -155,7 +157,7 @@ export function CompaniesTable() {
               </Select>
             </div>
 
-            <div className="w-40">
+            <div className="w-full lg:w-40">
               <Select
                 value={companyType}
                 onChange={(event) =>
@@ -172,7 +174,7 @@ export function CompaniesTable() {
               </Select>
             </div>
 
-            <div className="w-40">
+            <div className="w-full lg:w-40">
               <Select
                 value={status}
                 onChange={(event) =>
@@ -193,7 +195,7 @@ export function CompaniesTable() {
               type="button"
               variant={showMoreFilters || materialType !== "" || watchlistedOnly ? "default" : "outline"}
               onClick={() => setShowMoreFilters((value) => !value)}
-              className="h-10"
+              className="h-10 w-full lg:w-auto"
             >
               <Filter className="size-4" strokeWidth={2.25} />
               Filters
@@ -203,7 +205,7 @@ export function CompaniesTable() {
 
         {showMoreFilters && (
           <div className="flex flex-wrap items-center gap-2.5 border-t border-border/60 pt-3">
-            <div className="w-52">
+            <div className="w-full sm:w-52">
               <Select
                 value={materialType}
                 onChange={(event) =>
@@ -248,11 +250,25 @@ export function CompaniesTable() {
       ) : (
         <div
           className={cn(
-            "overflow-x-auto transition-opacity duration-200",
+            "transition-opacity duration-200",
             isFetching && "pointer-events-none opacity-60",
           )}
         >
-          <table className="w-full min-w-[880px] table-fixed border-collapse text-sm">
+          {/* A phone cannot show six columns, and a sideways-scrolling table
+              hides half the row behind a gesture nobody discovers. Below `md`
+              each company is a card instead — the same facts, stacked. */}
+          <ul className="divide-y divide-border/40 md:hidden">
+            {rows.map((row) => (
+              <CompanyCard
+                key={row.id}
+                row={row}
+                onView={() => router.push(`/companies/${row.id}`)}
+              />
+            ))}
+          </ul>
+
+          <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
             <colgroup>
               <col />
               <col className="w-[150px]" />
@@ -277,6 +293,7 @@ export function CompaniesTable() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -304,9 +321,6 @@ export function CompaniesTable() {
 }
 
 function Row({ row, onView }: { row: CompanyListItem; onView: () => void }) {
-  const deleteCompany = useDeleteCompany();
-  const [confirming, setConfirming] = useState(false);
-
   return (
     <tr
       className="cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-accent/25"
@@ -379,45 +393,147 @@ function Row({ row, onView }: { row: CompanyListItem; onView: () => void }) {
 
       <td className="px-2 py-3.5" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-end">
-          <DropdownMenu
-            trigger={(props) => (
-              <button
-                type="button"
-                {...props}
-                aria-label={`Actions for ${row.name_en}`}
-                className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              >
-                <MoreHorizontal className="size-4" strokeWidth={2.25} />
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                <DropdownMenuItem
-                  onClick={() => {
-                    close();
-                    onView();
-                  }}
-                >
-                  <Eye />
-                  View details
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  destructive
-                  onClick={() => {
-                    close();
-                    setConfirming(true);
-                  }}
-                >
-                  <Trash2 />
-                  Delete company
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenu>
+          <RowActions row={row} onView={onView} />
         </div>
       </td>
+    </tr>
+  );
+}
+
+/**
+ * One company as a card, for phones.
+ *
+ * Column order becomes reading order: who they are, then what they are and
+ * where, then how to reach them. The status sits on the right of the first
+ * line because it is the one thing scanned down a list.
+ */
+function CompanyCard({ row, onView }: { row: CompanyListItem; onView: () => void }) {
+  const status = STATUS_STYLE[row.status];
+  const flag = flagFor(row.country?.iso2 ?? null);
+
+  return (
+    <li>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onView}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onView();
+          }
+        }}
+        className="flex cursor-pointer items-start gap-3 px-4 py-3.5 transition-colors hover:bg-accent/25"
+      >
+        <span
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ring-border/50",
+            avatarStyleFor(row.id),
+          )}
+        >
+          {avatarLabelFor(row)}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          {/* The name gets the whole line: at 375px, sharing it with the
+              status chip cut most supplier names off after two words. */}
+          <p className="truncate text-sm font-bold text-foreground">{row.name_en}</p>
+
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className={cn("flex shrink-0 items-center gap-1.5 font-semibold", status.text)}>
+              <span className={cn("size-1.5 rounded-full", status.dot)} />
+              {status.label}
+            </span>
+            <span aria-hidden>·</span>
+            <span className="font-semibold text-foreground/80">
+              {TYPE_LABEL[row.company_type]}
+            </span>
+            {(row.country || row.city) && <span aria-hidden>·</span>}
+            {row.country && (
+              <span className="truncate">
+                {flag && <span aria-hidden>{flag} </span>}
+                {row.country.name}
+              </span>
+            )}
+            {row.city && (
+              <>
+                <span aria-hidden>·</span>
+                <span className="truncate">{row.city}</span>
+              </>
+            )}
+          </p>
+
+          {(row.email || row.phone) && (
+            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-medium text-muted-foreground">
+              {row.email && (
+                <span className="flex min-w-0 items-center gap-1">
+                  <Mail className="size-3 shrink-0" strokeWidth={2} />
+                  <span className="truncate">{row.email}</span>
+                </span>
+              )}
+              {row.phone && (
+                <span className="flex shrink-0 items-center gap-1">
+                  <Phone className="size-3" strokeWidth={2} />
+                  {row.phone}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+
+        <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+          <RowActions row={row} onView={onView} />
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/** View / delete, shared by the table row and the phone card. */
+function RowActions({ row, onView }: { row: CompanyListItem; onView: () => void }) {
+  const deleteCompany = useDeleteCompany();
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <>
+      <DropdownMenu
+        trigger={(props) => (
+          <button
+            type="button"
+            {...props}
+            aria-label={`Actions for ${row.name_en}`}
+            className="flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <MoreHorizontal className="size-4" strokeWidth={2.25} />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <DropdownMenuItem
+              onClick={() => {
+                close();
+                onView();
+              }}
+            >
+              <Eye />
+              View details
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              destructive
+              onClick={() => {
+                close();
+                setConfirming(true);
+              }}
+            >
+              <Trash2 />
+              Delete company
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenu>
 
       {confirming && (
         <ConfirmDialog
@@ -439,7 +555,7 @@ function Row({ row, onView }: { row: CompanyListItem; onView: () => void }) {
           onCancel={() => setConfirming(false)}
         />
       )}
-    </tr>
+    </>
   );
 }
 

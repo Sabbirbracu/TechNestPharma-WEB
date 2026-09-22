@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronDown, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,12 +87,17 @@ export function DocumentFilterBar({
   onTabChange: (tab: DocumentTab) => void;
   dirty: boolean;
 }) {
+  // Phones only: the five dropdowns fold behind the Filters button, or they
+  // push the documents a full screen down. From lg they are always shown.
+  const [showFilters, setShowFilters] = useState(false);
+  const activeCount = Object.values(filters).filter((value) => value !== "").length;
+
   function set<K extends keyof FilterValues>(key: K, value: FilterValues[K]) {
     onFiltersChange({ ...filters, [key]: value });
   }
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
           <Search
@@ -100,12 +106,14 @@ export function DocumentFilterBar({
             strokeWidth={2}
           />
           <Input
+            type="search"
+            enterKeyHint="search"
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") onSearchCommit();
             }}
-            placeholder="Search documents by name, supplier, product, etc..."
+            placeholder="Search by name, supplier, product…"
             aria-label="Search documents"
             className="h-11 pl-11"
           />
@@ -113,23 +121,54 @@ export function DocumentFilterBar({
         <div className="flex shrink-0 items-center gap-2.5">
           <Button
             variant="outline"
-            className="h-11"
+            className="h-11 flex-1 lg:flex-none"
             onClick={onReset}
             disabled={!dirty}
           >
             <RotateCcw />
             Reset
           </Button>
-          <Button variant="outline" className="h-11" onClick={onSearchCommit}>
+          <Button
+            variant="outline"
+            className="hidden h-11 lg:inline-flex"
+            onClick={onSearchCommit}
+          >
             <SlidersHorizontal />
             Filters
             <ChevronDown className="opacity-60" />
           </Button>
+          <Button
+            variant="outline"
+            className={cn(
+              "h-11 flex-1 lg:hidden",
+              activeCount > 0 && "border-primary/50 text-primary",
+            )}
+            onClick={() => setShowFilters((open) => !open)}
+            aria-expanded={showFilters}
+            aria-controls="document-filters"
+          >
+            <SlidersHorizontal />
+            Filters
+            {activeCount > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 text-[11px] font-bold tabular-nums">
+                {activeCount}
+              </span>
+            )}
+            <ChevronDown
+              className={cn("opacity-60 transition-transform", showFilters && "rotate-180")}
+            />
+          </Button>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <Field label="Document Type" htmlFor="doc-type">
+      <div
+        id="document-filters"
+        className={cn(
+          "mt-4 grid-cols-2 gap-3 lg:grid lg:grid-cols-3 xl:grid-cols-5",
+          showFilters ? "grid" : "hidden",
+        )}
+      >
+        <Field label="Document Type" htmlFor="doc-type" wide>
           <Select
             id="doc-type"
             value={filters.docType}
@@ -150,7 +189,7 @@ export function DocumentFilterBar({
           </Select>
         </Field>
 
-        <Field label="Supplier" htmlFor="doc-supplier">
+        <Field label="Supplier" htmlFor="doc-supplier" wide>
           <Select
             id="doc-supplier"
             value={filters.companyId}
@@ -165,7 +204,7 @@ export function DocumentFilterBar({
           </Select>
         </Field>
 
-        <Field label="Product" htmlFor="doc-product">
+        <Field label="Product" htmlFor="doc-product" wide>
           <Select
             id="doc-product"
             value={filters.productId}
@@ -210,7 +249,9 @@ export function DocumentFilterBar({
         </Field>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      {/* One swipeable line on a phone instead of four wrapped rows; the
+          negative margin lets it scroll to the card's edge. */}
+      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab) => (
           <button
             key={tab.value}
@@ -218,7 +259,7 @@ export function DocumentFilterBar({
             onClick={() => onTabChange(tab.value)}
             aria-pressed={tab.value === activeTab}
             className={cn(
-              "rounded-xl border px-3.5 py-2 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              "shrink-0 rounded-xl border px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               tab.value === activeTab
                 ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/12 dark:text-blue-300"
                 : "border-transparent bg-secondary text-muted-foreground hover:bg-accent/70 hover:text-foreground",
@@ -238,14 +279,18 @@ export function DocumentFilterBar({
 function Field({
   label,
   htmlFor,
+  wide = false,
   children,
 }: {
   label: string;
   htmlFor: string;
+  /** Full width in the phone's two-column grid — for pickers whose options
+   *  are long names. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className={cn("min-w-0 space-y-1.5", wide && "col-span-2 sm:col-span-1")}>
       <label
         htmlFor={htmlFor}
         className="block text-xs font-semibold text-muted-foreground"

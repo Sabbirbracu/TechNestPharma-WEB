@@ -48,7 +48,7 @@ export function DocumentStatCards({
       : null;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       <Tile
         icon={FileText}
         tint="bg-blue-50 text-blue-600 dark:bg-blue-500/12 dark:text-blue-300"
@@ -115,22 +115,23 @@ function Tile({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-start gap-3.5">
+    <div className="min-w-0 rounded-2xl border border-border/60 bg-card p-3.5 shadow-sm transition-shadow hover:shadow-md sm:p-5">
+      {/* Two tiles to a row on a phone: the icon stacks above the label. */}
+      <div className="flex flex-col items-start gap-2.5 sm:flex-row sm:gap-3.5">
         <span
           className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-xl",
+            "flex size-9 shrink-0 items-center justify-center rounded-xl sm:size-11",
             tint,
           )}
         >
-          <Icon className="size-5" strokeWidth={2} />
+          <Icon className="size-[18px] sm:size-5" strokeWidth={2} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-muted-foreground">
+          <p className="truncate text-xs font-semibold text-muted-foreground sm:text-[13px]">
             {label}
           </p>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-            <span className="text-[26px] leading-none font-bold tracking-tight tabular-nums text-foreground">
+            <span className="text-[22px] leading-none font-bold tracking-tight tabular-nums text-foreground sm:text-[26px]">
               {value}
             </span>
             {delta !== undefined && delta !== null && (

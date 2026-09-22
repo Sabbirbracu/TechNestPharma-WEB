@@ -37,6 +37,11 @@ import type {
   CountryRef,
   DashboardStats,
   DashboardTimeseries,
+  ApproveResult,
+  QueueSummary,
+  ReplyReview,
+  ReviewItem,
+  ReviewItemInput,
   DirectSendInput,
   ExtractionResult,
   InboxBucket,
@@ -50,6 +55,7 @@ import type {
   SampleUpdateInput,
   SentMailParams,
   SentMessage,
+  InboxAssist,
   InboxThread,
   MatchCandidate,
   SenderRule,
@@ -129,6 +135,21 @@ import type {
   DocumentStats,
   DocumentTarget,
   DocumentUploadResult,
+  Inquiry,
+  InquirySuggestion,
+  EnquiryCounts,
+  EnquiryDetail,
+  EnquiryListItem,
+  EnquiryListParams,
+  Quotation,
+  QuotationInput,
+  InquiryComposeInput,
+  InquiryComposePreviewInput,
+  EmailTemplate,
+  EmailTemplateCatalog,
+  EmailTemplateInput,
+  EmailTemplateKind,
+  SupplierTenderMatch,
 } from "@/types/api";
 
 /**
@@ -226,6 +247,8 @@ export const keys = {
       ["mailbox", "inbox", bucket, pageToken] as const,
     inboxThread: (threadId: string) =>
       ["mailbox", "inbox-thread", threadId] as const,
+    inboxAssist: (threadId: string, messageId: string) =>
+      ["mailbox", "inbox-assist", threadId, messageId] as const,
     /** The prefix, for invalidating every page and filter at once. */
     sentAll: ["mailbox", "sent"] as const,
     sent: (params: SentMailParams) => ["mailbox", "sent", params] as const,
@@ -237,8 +260,28 @@ export const keys = {
     detail: (id: number) => ["samples", "detail", id] as const,
     pipeline: ["samples", "pipeline"] as const,
   },
+  inquiries: {
+    all: ["inquiries"] as const,
+    /** Every live shortlist row for one supplier, minus what the dialog
+     *  already holds. Keyed by the exclusions so adding a product refetches. */
+    tenderMatches: (companyId: number, excludeProductIds: number[]) =>
+      ["inquiries", "tender-matches", companyId, excludeProductIds.join(",")] as const,
+    composePreview: (input: InquiryComposePreviewInput) =>
+      ["inquiries", "compose-preview", input] as const,
+  },
   sourcing: {
     all: ["sourcing"] as const,
+    // Under "sourcing" on purpose: every mutation that already invalidates the
+    // sourcing prefix (status moves, sends, quotations) refreshes these too.
+    enquiries: (params: EnquiryListParams) =>
+      ["sourcing", "enquiries", "list", params] as const,
+    enquiryCounts: (q: string) => ["sourcing", "enquiries", "counts", q] as const,
+    enquiry: (id: number) => ["sourcing", "enquiries", "detail", id] as const,
+    // One supplier reply beside what was read out of it (Match with email).
+    reply: (communicationId: number) =>
+      ["sourcing", "reply", communicationId] as const,
+    suggestions: (companyId: number) =>
+      ["sourcing", "suggestions", companyId] as const,
     list: (params: SourcingRequestParams) => ["sourcing", "list", params] as const,
     detail: (id: number) => ["sourcing", "detail", id] as const,
     pipeline: ["sourcing", "pipeline"] as const,
@@ -1155,13 +1198,17 @@ export function useRemoveTenderShortlist() {
   });
 }
 
+/** Delete from the board. A tender read out of a notice is sent back to that
+ *  notice as a draft rather than erased, so the notice screens are refreshed
+ *  too — otherwise they keep showing it as Live. */
 export function useDeleteTender() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (tenderId: number) =>
-      apiFetch(`/tenders/${tenderId}`, { method: "DELETE" }),
+      apiFetch<{ detail: string }>(`/tenders/${tenderId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenderNotices.all });
     },
   });
 }
@@ -1777,6 +1824,177 @@ export function useSyncMailbox() {
   });
 }
 
+/* -- Grouped inquiries: one supplier, many products (0038) ---------------- */
+
+/**
+ * What else this supplier is shortlisted for, across every live tender.
+ *
+ * The answer to "I am already emailing GTIG — what else do they have?". The
+ * exclusions are the products the dialog already holds, so the prompt never
+ * offers the same one twice.
+ */
+export function useSupplierTenderMatches(
+  companyId: number | null,
+  excludeProductIds: number[],
+  enabled = true,
+) {
+  const excluded = [...excludeProductIds].sort((a, b) => a - b);
+  return useQuery({
+    queryKey: keys.inquiries.tenderMatches(companyId ?? 0, excluded),
+    queryFn: () =>
+      apiFetch<SupplierTenderMatch[]>(
+        `/sourcing/companies/${companyId}/tender-matches${toQueryString({
+          exclude_product_id: excluded,
+        })}`,
+      ),
+    enabled: enabled && companyId !== null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The grouped email as it will go out, rendered before anything is filed.
+ *
+ * Server-side for the same reason the single-product preview is: what the
+ * buyer reads has to be produced by the code that produces the real draft, or
+ * the two drift and the record afterwards is a guess.
+ */
+export function useInquiryComposePreview(
+  input: InquiryComposePreviewInput | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: keys.inquiries.composePreview(
+      input ?? ({ company_id: 0, items: [] } as InquiryComposePreviewInput),
+    ),
+    queryFn: () =>
+      apiFetch<InquiryDraft>("/mailbox/inquiry-compose-preview", {
+        method: "POST",
+        json: input,
+      }),
+    enabled: enabled && input !== null && input.items.length > 0,
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * File the whole inquiry in one call — N sourcing requests plus the
+ * conversation that groups them.
+ *
+ * One round trip rather than N+1 because a half-created inquiry (three
+ * requests filed, the grouping failed) is worse than none: the products look
+ * asked-about and no email was ever sent. Creates only — sending is
+ * `useSendGroupedInquiry`, so "Save draft" is simply this call on its own.
+ */
+export function useComposeInquiry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: InquiryComposeInput) =>
+      apiFetch<Inquiry>("/sourcing/inquiries/compose", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+      queryClient.invalidateQueries({ queryKey: keys.inquiries.all });
+    },
+  });
+}
+
+/** The filed inquiry's draft — used after compose to send exactly what the
+ *  server renders when the buyer did not edit anything. */
+export function useGroupedInquiryDraft() {
+  return useMutation({
+    mutationFn: (arg: number | { inquiryId: number; templateId?: number | null }) => {
+      const { inquiryId, templateId } =
+        typeof arg === "number" ? { inquiryId: arg, templateId: null } : arg;
+      return apiFetch<InquiryDraft>(
+        `/mailbox/inquiries/${inquiryId}/draft${toQueryString({ template_id: templateId ?? undefined })}`,
+      );
+    },
+  });
+}
+
+/* --- Email templates (2026-09-22) ------------------------------------------ */
+
+const templateKeys = {
+  all: ["email-templates"] as const,
+  list: (kind?: EmailTemplateKind) => ["email-templates", "list", kind ?? "all"] as const,
+  catalog: ["email-templates", "catalog"] as const,
+};
+
+export function useEmailTemplates(kind?: EmailTemplateKind) {
+  return useQuery({
+    queryKey: templateKeys.list(kind),
+    queryFn: () =>
+      apiFetch<EmailTemplate[]>(`/email-templates${toQueryString({ kind })}`),
+  });
+}
+
+/** Placeholders a template can use, and the built-in wording to start from. */
+export function useEmailTemplateCatalog() {
+  return useQuery({
+    queryKey: templateKeys.catalog,
+    queryFn: () => apiFetch<EmailTemplateCatalog>("/email-templates/catalog"),
+    staleTime: Infinity,
+  });
+}
+
+export function useSaveEmailTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number | null; payload: EmailTemplateInput }) =>
+      id === null
+        ? apiFetch<EmailTemplate>("/email-templates", { method: "POST", json: payload })
+        : apiFetch<EmailTemplate>(`/email-templates/${id}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: templateKeys.all });
+      queryClient.invalidateQueries({ queryKey: keys.inquiries.all });
+    },
+  });
+}
+
+export function useDeleteEmailTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<{ detail: string }>(`/email-templates/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: templateKeys.all }),
+  });
+}
+
+/**
+ * Send one email covering every product in the inquiry.
+ *
+ * Filed against the inquiry rather than one of its requests — there is no
+ * honest way to pick one of four — while each request moves to `sent` on its
+ * own and keeps its own tender.
+ */
+export function useSendGroupedInquiry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      inquiryId,
+      payload,
+    }: {
+      inquiryId: number;
+      payload: MailSendInput;
+    }) =>
+      apiFetch<MailMessage>(`/mailbox/inquiries/${inquiryId}/send`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.mailbox.all });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+      queryClient.invalidateQueries({ queryKey: keys.inquiries.all });
+    },
+  });
+}
+
 /** Download an attachment.
  *
  *  Goes through fetch rather than a plain <a href> because the endpoint needs
@@ -2343,11 +2561,18 @@ export function useDeleteAllNotifications() {
  *  provider token, and keeps working while the weekly Gmail grant is expired —
  *  which is exactly when "what did I send that supplier?" gets asked.
  */
-export function useSentMail(params: SentMailParams) {
-  return useQuery({
+export function useSentMail(params: Omit<SentMailParams, "page" | "size">) {
+  // "Load more" rather than numbered pages (2026-09-17): each press appends
+  // the next 20 to the same list. Only the connected account's mail comes back.
+  return useInfiniteQuery({
     queryKey: keys.mailbox.sent(params),
-    queryFn: () =>
-      apiFetch<Page<SentMessage>>(`/mailbox/sent${toQueryString(params)}`),
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      apiFetch<Page<SentMessage>>(
+        `/mailbox/sent${toQueryString({ ...params, page: pageParam, size: 20 })}`,
+      ),
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
     placeholderData: keepPreviousData,
   });
 }
@@ -2383,6 +2608,32 @@ export function useInboxThread(threadId: string | null) {
       apiFetch<InboxThread>(`/mailbox/inbox/threads/${threadId}`),
     enabled: Boolean(threadId),
     staleTime: 30_000,
+  });
+}
+
+/** AI summary + suggested replies for one received message.
+ *
+ *  A query rather than a mutation so a result survives closing and reopening
+ *  the message, but it only runs once `requested` is true: every call is a paid
+ *  request to a third party, so the buyer asks for it (see
+ *  `backend/app/core/mail_assist.py`). Not retried — a 503 "not configured"
+ *  will not fix itself, and a 502 is better re-pressed by hand. */
+export function useInboxAssist(
+  threadId: string,
+  messageId: string,
+  requested: boolean,
+) {
+  return useQuery({
+    queryKey: keys.mailbox.inboxAssist(threadId, messageId),
+    queryFn: () =>
+      apiFetch<InboxAssist>(
+        `/mailbox/inbox/threads/${threadId}/messages/${messageId}/assist`,
+        { method: "POST" },
+      ),
+    enabled: requested,
+    staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -2607,6 +2858,223 @@ export function useDeleteSample() {
       apiFetch<{ detail: string }>(`/samples/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.samples.all });
+    },
+  });
+}
+
+
+// --- Supplier Enquiries (2026-09-17) ----------------------------------------
+
+/** One row per supplier enquiry, 20 at a time with "Load more". */
+/** One page of the Supplier Inquiries table (numbered pages, 8 rows). */
+export const ENQUIRY_PAGE_SIZE = 8;
+
+export function useEnquiries(params: EnquiryListParams) {
+  return useQuery({
+    queryKey: keys.sourcing.enquiries(params),
+    queryFn: () =>
+      apiFetch<Page<EnquiryListItem>>(
+        `/sourcing/enquiries${toQueryString({
+          tab: params.tab,
+          q: params.q || undefined,
+          source: params.source === "all" ? undefined : params.source,
+          since_days: params.sinceDays ?? undefined,
+          sort: params.sort === "activity" ? undefined : params.sort,
+          page: params.page,
+          size: ENQUIRY_PAGE_SIZE,
+        })}`,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEnquiryCounts(q: string) {
+  return useQuery({
+    queryKey: keys.sourcing.enquiryCounts(q),
+    queryFn: () =>
+      apiFetch<EnquiryCounts>(
+        `/sourcing/enquiries/counts${toQueryString({ q: q || undefined })}`,
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEnquiry(id: number) {
+  return useQuery({
+    queryKey: keys.sourcing.enquiry(id),
+    queryFn: () => apiFetch<EnquiryDetail>(`/sourcing/enquiries/${id}`),
+    // While the background worker is reading a supplier reply, keep the page
+    // current so the draft appears without a manual refresh.
+    refetchInterval: (query) => ((query.state.data?.processing_replies ?? 0) > 0 ? 5000 : false),
+  });
+}
+
+/** Open enquiries with this supplier, and which products they already ask
+ *  about — what "add to the existing enquiry?" is decided from. */
+export function useInquirySuggestions(companyId: number | null) {
+  return useQuery({
+    queryKey: keys.sourcing.suggestions(companyId ?? 0),
+    queryFn: () =>
+      apiFetch<InquirySuggestion>(
+        `/sourcing/companies/${companyId}/inquiry-suggestions`,
+      ),
+    enabled: companyId !== null,
+  });
+}
+
+/** Record what a supplier quoted for one product line. The server moves the
+ *  line to Quotation Received if it was not there yet. */
+export function useAddQuotation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      payload,
+    }: {
+      requestId: number;
+      payload: QuotationInput;
+    }) =>
+      apiFetch<Quotation>(`/sourcing/requests/${requestId}/quotations`, {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/** Delete whole supplier enquiries (every product line in them, soft). */
+export function useDeleteEnquiries() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) =>
+      apiFetch<{ deleted_enquiries: number; deleted_lines: number }>(
+        "/sourcing/enquiries/delete",
+        { method: "POST", json: { ids } },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+
+/* --- Supplier replies read by AI, and quotation review (0045) ------------ */
+
+const READING = new Set(["detected", "processing"]);
+
+/** One supplier reply, the draft read out of it, and the quotations approved
+ *  from it — the Review dialog. Polls while the AI worker is still reading. */
+export function useReplyReview(communicationId: number | null) {
+  return useQuery({
+    queryKey: keys.sourcing.reply(communicationId ?? 0),
+    queryFn: () => apiFetch<ReplyReview>(`/quotations/messages/${communicationId}`),
+    enabled: communicationId !== null,
+    refetchInterval: (query) =>
+      query.state.data?.status && READING.has(query.state.data.status) ? 4000 : false,
+  });
+}
+
+/** Everything a review action changes lives under `sourcing`: the draft, the
+ *  lines' statuses, the enquiry's state and its quotations. */
+function useReviewAction<T>(path: (id: number) => string, json?: () => unknown) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (communicationId: number) =>
+      apiFetch<T>(path(communicationId), { method: "POST", json: json ? json() : undefined }),
+    onSuccess: (_result, communicationId) => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.reply(communicationId) });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/** Retry AI processing — re-queues the reply; the dialog polls for the result. */
+export const useRetryReply = () =>
+  useReviewAction<ReplyReview>((id) => `/quotations/messages/${id}/retry`);
+/** Approve — the only path from an AI draft to official quotations. */
+export const useApproveReply = () =>
+  useReviewAction<ApproveResult>((id) => `/quotations/messages/${id}/approve`, () => ({}));
+/** Reject — nothing is recorded; the reply is never re-read. */
+export const useRejectReply = () =>
+  useReviewAction<ReplyReview>((id) => `/quotations/messages/${id}/reject`);
+
+/** One reviewer correction on a draft item (figure, manual match, exclude). */
+export function useUpdateDraftItem(communicationId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: ReviewItemInput }) =>
+      apiFetch<ReviewItem>(`/quotations/draft-items/${id}`, { method: "PATCH", json: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.reply(communicationId) });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** "Additional product detected" → Add to sourcing (a new line on this enquiry). */
+export function useAddDraftItemToSourcing(communicationId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: number) =>
+      apiFetch<ReviewItem>(`/quotations/draft-items/${itemId}/add-to-sourcing`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.reply(communicationId) });
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Queue the enquiry's unread supplier replies for AI reading. The workspace
+ *  calls this by itself when it opens onto unread ones; `force` re-queues
+ *  failed and quotation-less ones too. Never reads inside the request. */
+export function useReadEnquiryReplies(inquiryId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (force: boolean = false) =>
+      apiFetch<QueueSummary>(`/sourcing/enquiries/${inquiryId}/read-replies`, {
+        method: "POST",
+        json: { force },
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+    },
+  });
+}
+
+/** Correct a quotation's figures. Editing one counts as checking it. */
+export function useUpdateQuotation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: QuotationInput }) =>
+      apiFetch<Quotation>(`/sourcing/quotations/${id}`, {
+        method: "PATCH",
+        json: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
+    },
+  });
+}
+
+/** Remove a quotation. A line left with none goes back to Replied. */
+export function useDeleteQuotation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<{ message: string }>(`/sourcing/quotations/${id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: keys.tenders.all });
     },
   });
 }

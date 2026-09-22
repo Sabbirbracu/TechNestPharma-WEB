@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { ApiError } from "@/lib/api";
+import { shortReference } from "@/lib/tender-reference";
 import {
   useAcceptAllSuggestions,
   useConfirmTender,
@@ -73,7 +74,34 @@ export function TenderTable({ notice }: { notice: TenderNoticeDetail }) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* Below lg the ten columns can't fit: one card per tender. The shared
+          closing / opening hour, hoisted into the table header on desktop,
+          goes on a line of its own above the cards. */}
+      <div className="lg:hidden">
+        {(closingAt || openingAt) && (
+          <p className="border-b border-border/60 bg-secondary/30 px-4 py-2 text-[11px] font-semibold text-muted-foreground">
+            All tenders
+            {closingAt && <> close at <span className="text-foreground">{closingAt}</span></>}
+            {closingAt && openingAt && " and"}
+            {openingAt && <> open at <span className="text-foreground">{openingAt}</span></>}
+          </p>
+        )}
+        <ul className="divide-y divide-border/50">
+          {tenders.map((tender, index) => (
+            <TenderCard
+              key={tender.id}
+              serial={index + 1}
+              noticeId={notice.id}
+              tender={tender}
+              showClosingTime={!closingAt}
+              showOpeningTime={!openingAt}
+            />
+          ))}
+        </ul>
+      </div>
+
+    <div className="hidden overflow-x-auto lg:block">
       <table className="w-full text-left">
         <thead>
           <tr className="border-b border-border/60 align-top text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -117,6 +145,7 @@ export function TenderTable({ notice }: { notice: TenderNoticeDetail }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -133,9 +162,7 @@ function TenderRow({
   showClosingTime: boolean;
   showOpeningTime: boolean;
 }) {
-  const settled =
-    tender.item_count > 0 && tender.mapped_count === tender.item_count;
-  const live = tender.notice_confirmed_at !== null;
+  const { settled, progress } = tenderState(tender);
   const reference = tender.reference_no?.trim();
 
   return (
@@ -157,8 +184,11 @@ function TenderRow({
                   row identifiable — and it matters more once tenders from two
                   authorities share a screen. */}
               <BuyerBadge buyerName={tender.buyer_name} />
-              <span className="font-mono text-sm font-bold text-foreground group-hover:text-primary">
-                {reference}
+              <span
+                className="font-mono text-sm font-bold text-foreground group-hover:text-primary"
+                title={reference}
+              >
+                {shortReference(reference)}
               </span>
             </span>
           ) : (
@@ -169,6 +199,13 @@ function TenderRow({
               No reference number
             </span>
           )}
+          {/* The item-derived name: what tells this row from its neighbours. */}
+          <span
+            className="block max-w-72 truncate text-xs font-semibold text-foreground/80"
+            title={tender.name}
+          >
+            {tender.name}
+          </span>
           <span className="block text-[11px] font-medium text-muted-foreground">
             Dated {formatDate(tender.notice_date)}
           </span>
@@ -221,30 +258,177 @@ function TenderRow({
               "block h-full rounded-full",
               settled ? "bg-success" : "bg-primary",
             )}
-            style={{
-              width: `${tender.item_count > 0 ? Math.round((tender.mapped_count / tender.item_count) * 100) : 0}%`,
-            }}
+            style={{ width: `${progress}%` }}
           />
         </span>
       </td>
       <td className="px-4 py-3">
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ring-inset",
-            live
-              ? "bg-success/10 text-success ring-success/20"
-              : settled
-                ? "bg-primary/10 text-primary ring-primary/20"
-                : "bg-warning/10 text-warning-foreground ring-warning/30",
-          )}
-        >
-          {live ? "Live" : settled ? "Ready" : "Review"}
-        </span>
+        <StatusPill tender={tender} />
       </td>
       <td className="px-4 py-3 text-center font-bold">
         <RowMenu noticeId={noticeId} tender={tender} />
       </td>
     </tr>
+  );
+}
+
+function tenderState(tender: NoticeTender) {
+  const settled =
+    tender.item_count > 0 && tender.mapped_count === tender.item_count;
+  const live = tender.notice_confirmed_at !== null;
+  const progress =
+    tender.item_count > 0
+      ? Math.round((tender.mapped_count / tender.item_count) * 100)
+      : 0;
+  return { settled, live, progress };
+}
+
+function StatusPill({ tender }: { tender: NoticeTender }) {
+  const { settled, live } = tenderState(tender);
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[11px] font-bold whitespace-nowrap ring-1 ring-inset",
+        live
+          ? "bg-success/10 text-success ring-success/20"
+          : settled
+            ? "bg-primary/10 text-primary ring-primary/20"
+            : "bg-warning/10 text-warning-foreground ring-warning/30",
+      )}
+    >
+      {live ? "Live" : settled ? "Ready" : "Review"}
+    </span>
+  );
+}
+
+/** The phone / tablet counterpart of `TenderRow`. The whole card opens the
+ *  tender; only the ⋯ menu sits outside the link. */
+function TenderCard({
+  serial,
+  noticeId,
+  tender,
+  showClosingTime,
+  showOpeningTime,
+}: {
+  serial: number;
+  noticeId: number;
+  tender: NoticeTender;
+  showClosingTime: boolean;
+  showOpeningTime: boolean;
+}) {
+  const { settled, progress } = tenderState(tender);
+  const reference = tender.reference_no?.trim();
+
+  return (
+    <li className="relative">
+      <Link
+        href={tenderHref(noticeId, tender.reference_no)}
+        className="block px-4 py-3.5 transition active:bg-secondary/60"
+      >
+        <div className="flex items-start gap-3">
+          {/* Serial, as on the printed notice the reader is checking against. */}
+          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-secondary text-[11px] font-bold tabular-nums text-muted-foreground">
+            {serial}
+          </span>
+          <div className="min-w-0 flex-1">
+            {/* pr-8 keeps the first line clear of the ⋯ menu above it. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-8">
+              {reference ? (
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <BuyerBadge buyerName={tender.buyer_name} />
+                  <span
+                    className="truncate font-mono text-sm font-bold text-foreground"
+                    title={reference}
+                  >
+                    {shortReference(reference)}
+                  </span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-sm font-bold text-warning-foreground">
+                  <AlertTriangle className="size-3.5 shrink-0" />
+                  No reference number
+                </span>
+              )}
+              <StatusPill tender={tender} />
+            </div>
+            <p className="mt-1 line-clamp-2 pr-6 text-xs font-semibold break-words text-foreground/80">
+              {tender.name}
+            </p>
+            <p className="text-[11px] font-medium text-muted-foreground">
+              Dated {formatDate(tender.notice_date)}
+            </p>
+
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 rounded-xl bg-secondary/40 px-3 py-2.5 text-xs sm:grid-cols-3">
+              <CardFact label="Closing">
+                {formatDate(tender.closing_date)}
+                {showClosingTime && tender.closing_time && (
+                  <span className="text-muted-foreground"> · {formatTime(tender.closing_time)}</span>
+                )}
+              </CardFact>
+              <CardFact label="Opening">
+                {formatDate(tender.opening_date)}
+                {showOpeningTime && tender.opening_time && (
+                  <span className="text-muted-foreground"> · {formatTime(tender.opening_time)}</span>
+                )}
+              </CardFact>
+              <CardFact label="Schedule cost">
+                {formatMoney(tender.schedule_cost, tender.schedule_currency)}
+                {tender.schedule_cost_usd && (
+                  <span className="block text-[11px] font-medium text-muted-foreground">
+                    ≈ USD {tender.schedule_cost_usd}
+                  </span>
+                )}
+              </CardFact>
+              <CardFact label="Items">
+                {tender.item_count}
+                <span className="font-medium text-muted-foreground">
+                  {" · "}
+                  {tender.selected_supplier_count} supplier
+                  {tender.selected_supplier_count === 1 ? "" : "s"}
+                </span>
+              </CardFact>
+              <div className="col-span-2 sm:col-span-2">
+                <dt className="flex items-center justify-between text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                  Mapped
+                  <span
+                    className={cn(
+                      "text-xs tracking-normal tabular-nums normal-case",
+                      settled ? "text-success" : "text-foreground",
+                    )}
+                  >
+                    {tender.mapped_count}/{tender.item_count}
+                  </span>
+                </dt>
+                <dd className="mt-1 h-1.5 overflow-hidden rounded-full bg-card">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      settled ? "bg-success" : "bg-primary",
+                    )}
+                    style={{ width: `${progress}%` }}
+                  />
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </Link>
+
+      <div className="absolute top-3 right-2.5">
+        <RowMenu noticeId={noticeId} tender={tender} />
+      </div>
+    </li>
+  );
+}
+
+function CardFact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+        {label}
+      </dt>
+      <dd className="mt-0.5 font-semibold break-words text-foreground">{children}</dd>
+    </div>
   );
 }
 

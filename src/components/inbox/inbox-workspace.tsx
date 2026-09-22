@@ -15,15 +15,15 @@ import {
   Inbox as InboxIcon,
   Loader2,
   Mail,
-  MailQuestion,
+  MessageSquareReply,
   FolderPlus,
   FileText,
   Paperclip,
   PenSquare,
   RefreshCw,
   Reply,
-  SendHorizontal,
   ShieldQuestion,
+  Sparkles,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +35,7 @@ import {
   isPreviewable,
 } from "@/components/documents/file-preview";
 import { ComposeDialog } from "@/components/inbox/compose-dialog";
-import { SentMail } from "@/components/inbox/sent-mail";
+import { ApiError } from "@/lib/api";
 import { baseSubject, splitQuotedReply } from "@/lib/mail-quote";
 import {
   downloadInboxAttachment,
@@ -43,6 +43,7 @@ import {
   isMailboxReauthError,
   useFileInboxThread,
   useInbox,
+  useInboxAssist,
   useInboxThread,
   useMailboxSettings,
   useSetSenderRule,
@@ -52,10 +53,14 @@ import { keys } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import type { InboxBucket, InboxMessage } from "@/types/api";
 
-/** The tab bar's own vocabulary. Three of the four are Gmail buckets; "sent"
- *  is a different source entirely (the ERP's own outbound rows), which is why
- *  it is a tab key rather than a fourth `InboxBucket`. */
-type TabKey = InboxBucket | "sent";
+/** Who a reply goes to, and what it starts with. */
+type ReplyTarget = {
+  to: string;
+  subject: string;
+  threadId: string | null;
+  /** Prefilled text, e.g. a picked AI suggestion. */
+  body?: string;
+};
 
 /**
  * The inbox (2026-08-31, redesigned 2026-09-02).
@@ -108,35 +113,32 @@ type TabKey = InboxBucket | "sent";
  * the tab bar and the conversation header stay put on a long mailbox.
  */
 
+/**
+ * Three tabs (2026-09-17), renamed to the client's words. They are still the
+ * filter's three buckets underneath — Priority is `business`, Other is
+ * `unsorted`, Newsletters is `filtered` — so the sorting, the learned rules and
+ * the reasons on each row are unchanged. Sent moved to its own page under the
+ * Email menu.
+ */
 const TABS: {
-  key: TabKey;
+  key: InboxBucket;
   label: string;
   hint: string;
-  icon: typeof InboxIcon;
 }[] = [
   {
     key: "business",
-    label: "Business",
+    label: "Priority",
     hint: "Senders recognised from your companies and contacts, plus every conversation this system started.",
-    icon: InboxIcon,
   },
   {
     key: "unsorted",
-    label: "Unsorted",
+    label: "Other",
     hint: "Real people writing from an address you have not dealt with before. Sort them once and they stay sorted.",
-    icon: MailQuestion,
   },
   {
     key: "filtered",
-    label: "Filtered",
-    hint: "Newsletters, promotions and automated mail. Kept visible so nothing is lost — mark anything here as business if it was misjudged.",
-    icon: Archive,
-  },
-  {
-    key: "sent",
-    label: "Sent",
-    hint: "Every email this system sent, read from its own records rather than Gmail — so it works while the connection is expired, and each message names the supplier and enquiry it belongs to. Mail you send from Gmail directly is not here.",
-    icon: SendHorizontal,
+    label: "Newsletters",
+    hint: "Newsletters, promotions and automated mail. Kept visible so nothing is lost — mark anything here as priority if it was misjudged.",
   },
 ];
 
@@ -148,33 +150,21 @@ function replySubject(subject: string | null): string {
 }
 
 export function InboxWorkspace() {
-  const [tab, setTab] = useState<TabKey>("business");
-  // The Gmail queries still think in buckets. On the Sent tab there is no
-  // bucket to read, so the last one is kept as the query key and the query
-  // itself is switched off — going back to it then serves from cache rather
-  // than re-spending Gmail calls on mail that was already on screen.
   const [bucket, setBucket] = useState<InboxBucket>("business");
   const [pageToken, setPageToken] = useState<string | null>(null);
   const [selected, setSelected] = useState<InboxMessage | null>(null);
-  const [compose, setCompose] = useState<{
-    to: string;
-    subject: string;
-    threadId: string | null;
-  } | null>(null);
+  const [compose, setCompose] = useState<ReplyTarget | null>(null);
 
   const { data: settings } = useMailboxSettings();
   const connected = settings?.account?.status === "connected";
 
-  const queryClient = useQueryClient();
-  const isSent = tab === "sent";
   const page = useInbox(bucket, pageToken, {
-    enabled: Boolean(connected) && !isSent,
+    enabled: Boolean(connected),
   });
   const messages = useMemo(() => page.data?.messages ?? [], [page.data]);
 
-  const switchTab = useCallback((next: TabKey) => {
-    setTab(next);
-    if (next !== "sent") setBucket(next);
+  const switchTab = useCallback((next: InboxBucket) => {
+    setBucket(next);
     // Gmail's page tokens are per-query, so a token from the focused query is
     // meaningless against the unfiltered one the Filtered tab uses. Resetting
     // is not a nicety; carrying it over would return the wrong page.
@@ -189,13 +179,14 @@ export function InboxWorkspace() {
       threadId: message.thread_id,
     });
   }, []);
+  const replyTo = useCallback((target: ReplyTarget) => setCompose(target), []);
 
   // Keyboard navigation. Held to the list rather than the document's focus so
   // the buyer can read a long conversation on the right and still step to the
   // next message without reaching for the mouse.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (compose || isSent) return;
+      if (compose) return;
       const target = event.target as HTMLElement | null;
       // Never steal a keystroke from something being typed into.
       if (
@@ -244,7 +235,7 @@ export function InboxWorkspace() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [compose, isSent, messages, selected, openReply]);
+  }, [compose, messages, selected, openReply]);
 
   if (settings && !settings.account) {
     return (
@@ -265,7 +256,7 @@ export function InboxWorkspace() {
     );
   }
 
-  const activeTab = TABS.find((entry) => entry.key === tab);
+  const activeTab = TABS.find((entry) => entry.key === bucket);
 
   // The table body loads as one block: nothing partial, nothing stale, a
   // spinner over the whole area until every row is ready.
@@ -308,22 +299,17 @@ export function InboxWorkspace() {
           so the eye reads it as a mail client rather than three widgets that
           happen to sit near each other. */}
       <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex items-center gap-2 border-b border-border bg-secondary/25 px-2 py-1.5">
+        <div className="flex min-h-14 items-center gap-2 border-b border-border px-3">
           <div
             role="tablist"
             aria-label="Inbox"
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            className="flex min-w-0 flex-1 items-end gap-1 self-stretch overflow-x-auto"
           >
             {TABS.map((entry) => {
-              const active = entry.key === tab;
-              // Only the Gmail buckets have a count, and it describes the
-              // window that was fetched. Sent paginates a real total, shown in
-              // its own footer rather than claimed up here.
-              const count =
-                entry.key === "sent"
-                  ? undefined
-                  : page.data?.counts?.[entry.key];
-              const Icon = entry.icon;
+              const active = entry.key === bucket;
+              // The count describes the window that was fetched, not the
+              // whole mailbox — see the footer under the list.
+              const count = page.data?.counts?.[entry.key];
               return (
                 <button
                   key={entry.key}
@@ -333,13 +319,12 @@ export function InboxWorkspace() {
                   title={entry.hint}
                   onClick={() => switchTab(entry.key)}
                   className={cn(
-                    "relative flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+                    "relative flex shrink-0 items-center gap-2 px-5 py-4 text-[15px] font-semibold transition-colors",
                     active
-                      ? "bg-card text-primary shadow-xs"
-                      : "text-muted-foreground hover:bg-card/70 hover:text-foreground",
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <Icon className="size-4" />
                   {entry.label}
                   {typeof count === "number" && count > 0 && (
                     <span
@@ -354,7 +339,7 @@ export function InboxWorkspace() {
                     </span>
                   )}
                   {active && (
-                    <span className="absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full bg-primary" />
+                    <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary" />
                   )}
                 </button>
               );
@@ -365,21 +350,12 @@ export function InboxWorkspace() {
             <Button
               variant="outline"
               size="sm"
-              title={isSent ? "Re-read the sent log" : "Re-read the mailbox"}
-              onClick={() =>
-                isSent
-                  ? queryClient.invalidateQueries({
-                      queryKey: keys.mailbox.sentAll,
-                    })
-                  : page.refetch()
-              }
-              disabled={!isSent && page.isFetching}
+              title="Re-read the mailbox"
+              onClick={() => page.refetch()}
+              disabled={page.isFetching}
             >
               <RefreshCw
-                className={cn(
-                  "size-3.5",
-                  !isSent && page.isFetching && "animate-spin",
-                )}
+                className={cn("size-3.5", page.isFetching && "animate-spin")}
               />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
@@ -394,30 +370,12 @@ export function InboxWorkspace() {
           </div>
         </div>
 
-        {/* The active tab's hint keeps its own line now that the actions have
-            the top-right. It stays visible rather than becoming a tooltip:
-            which mail a tab collects is the thing the buyer has to trust, and
-            the per-row reason underneath is only half of that story. */}
-        <p className="truncate border-b border-border bg-secondary/15 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-          {activeTab?.hint}
-        </p>
-
-        {isSent ? (
-          <SentMail
-            onReply={(message) =>
-              setCompose({
-                to: message.counterparty ?? "",
-                subject: replySubject(message.subject),
-                threadId: message.external_thread_id,
-              })
-            }
-          />
-        ) : loadingTable ? (
+        {loadingTable ? (
           <div
             role="status"
             aria-busy="true"
             aria-live="polite"
-            className="flex min-h-[24rem] flex-col items-center justify-center gap-3 bg-secondary/10 lg:h-[calc(100vh-13rem)]"
+            className="flex min-h-[24rem] flex-col items-center justify-center gap-3 bg-secondary/10 lg:h-[calc(100vh-12.5rem)]"
           >
             <Loader2 className="size-6 animate-spin text-primary" />
             <p className="text-sm font-semibold text-foreground">
@@ -429,7 +387,7 @@ export function InboxWorkspace() {
             </p>
           </div>
         ) : (
-          <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100vh-13rem)] lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+          <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100vh-12.5rem)] lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
             <MessageList
               state={page}
               bucket={bucket}
@@ -440,9 +398,10 @@ export function InboxWorkspace() {
             />
 
             <ThreadPanel
+              key={selected?.thread_id ?? "none"}
               message={selected}
               onClose={() => setSelected(null)}
-              onReply={openReply}
+              onReply={replyTo}
             />
           </div>
         )}
@@ -452,10 +411,11 @@ export function InboxWorkspace() {
           than carrying the last one's text — see the note in ComposeDialog. */}
       {compose && (
         <ComposeDialog
-          key={`${compose.threadId ?? "new"}:${compose.to}`}
+          key={`${compose.threadId ?? "new"}:${compose.to}:${compose.body ?? ""}`}
           onClose={() => setCompose(null)}
           initialTo={compose.to}
           initialSubject={compose.subject}
+          initialBody={compose.body}
           threadId={compose.threadId}
           replyingTo={compose.to || null}
         />
@@ -504,10 +464,10 @@ function MessageList({
             </div>
             <p className="mt-3 text-sm font-semibold text-foreground">
               {bucket === "unsorted"
-                ? "Nothing waiting to be sorted."
+                ? "Nothing in Other on this page."
                 : bucket === "filtered"
                   ? "Nothing was filtered out of this page."
-                  : "No business mail on this page."}
+                  : "No priority mail on this page."}
             </p>
             <p className="mt-1 text-xs font-medium text-muted-foreground">
               {state.data?.next_page_token
@@ -757,7 +717,7 @@ function TriageButtons({ message }: { message: InboxMessage }) {
         aria-disabled={setRule.isPending}
         title={
           markingBusiness
-            ? `Always show mail from ${address} under Business`
+            ? `Always show mail from ${address} under Priority`
             : `Stop showing mail from ${address}`
         }
         onClick={(event) =>
@@ -830,6 +790,14 @@ function TriageButtons({ message }: { message: InboxMessage }) {
 
 // --- The reader -------------------------------------------------------------
 
+/**
+ * Gmail-style reader (2026-09-17). The conversation reads top to bottom, oldest
+ * first, each message a plain header and body on the page rather than a card
+ * on a timeline — the client asked for it to look like opening a mail in
+ * Gmail. Earlier messages collapse to one line; the newest and the one picked
+ * from the list open. Under the thread sit the AI summary and suggested
+ * replies, which are generated only when asked for.
+ */
 function ThreadPanel({
   message,
   onClose,
@@ -837,15 +805,19 @@ function ThreadPanel({
 }: {
   message: InboxMessage | null;
   onClose: () => void;
-  onReply: (message: InboxMessage) => void;
+  onReply: (target: ReplyTarget) => void;
 }) {
   const thread = useInboxThread(message?.thread_id ?? null);
   const file = useFileInboxThread();
+  // Per-message open/closed overrides; everything else follows the default.
+  const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
+    new Map(),
+  );
 
   if (!message) {
     return (
-      <div className="hidden min-h-0 flex-col items-center justify-center bg-secondary/15 p-10 text-center lg:flex">
-        <div className="flex size-14 items-center justify-center rounded-2xl bg-card shadow-xs ring-1 ring-border">
+      <div className="hidden min-h-0 flex-col items-center justify-center bg-card p-10 text-center lg:flex">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-secondary/40 ring-1 ring-border">
           <Mail className="size-6 text-muted-foreground/60" />
         </div>
         <p className="mt-4 text-sm font-semibold text-foreground">
@@ -867,116 +839,126 @@ function ThreadPanel({
   }
 
   const subject = baseSubject(message.subject) || "(no subject)";
-  const messages = [...(thread.data?.messages ?? [])].sort((a, b) =>
-    byNewest(a.occurred_at, b.occurred_at),
-  );
+  // Received mail only (2026-09-17, client's call): the reader is an inbox,
+  // not a conversation, so his own sent replies in the thread are not shown
+  // here — they are on Email → Sent. The AI summary still reads the whole
+  // thread server-side, so a suggested reply knows what was already said.
+  const items = [...(thread.data?.messages ?? [])]
+    .filter((m) => m.direction !== "outbound")
+    .sort((a, b) => byNewest(b.occurred_at, a.occurred_at));
+  const latest = items[items.length - 1];
+  // Gmail answers the last person who wrote, not whoever started the thread.
+  const lastInbound = latest;
+  const replyTarget = (body?: string): ReplyTarget => ({
+    to: lastInbound?.from_address ?? message.from_address ?? "",
+    subject: replySubject(message.subject),
+    threadId: message.thread_id,
+    body,
+  });
+
+  // Every received message starts open, each with its own AI section; the
+  // header still collapses one by hand.
+  const isOpen = (id: string) => overrides.get(id) ?? true;
+  const toggle = (id: string) =>
+    setOverrides((current) => new Map(current).set(id, !isOpen(id)));
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-col bg-secondary/[0.18]">
-      <header className="shrink-0 border-b border-border/70 bg-gradient-to-br from-primary/[0.09] via-card to-card px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-primary">
-              Conversation
-            </p>
-            <h2 className="mt-1 truncate text-lg font-extrabold tracking-tight text-foreground">
-              {subject}
-            </h2>
-            <p className="mt-1 truncate text-xs font-medium text-muted-foreground">
-              {message.from_name
-                ? `${message.from_name} · ${message.from_address}`
-                : message.from_address}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close this conversation (Esc)"
-            className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-card hover:text-foreground lg:hidden"
+    <div className="flex min-h-0 min-w-0 flex-col bg-card">
+      {/* Toolbar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 px-4 py-2">
+        <Button size="sm" variant="outline" onClick={() => onReply(replyTarget())}>
+          <Reply className="size-3.5" />
+          Reply
+        </Button>
+        {!message.in_erp ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={file.isPending}
+            title="Keep this conversation in the ERP, on the supplier's timeline"
+            onClick={() =>
+              file.mutate({
+                threadId: message.thread_id,
+                companyId: message.company_id,
+              })
+            }
           >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => onReply(message)} className="rounded-xl shadow-sm shadow-primary/20">
-            <Reply className="size-3.5" />
-            Reply
+            {file.isPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Archive className="size-3.5" />
+            )}
+            File to ERP
           </Button>
-          {!message.in_erp && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={file.isPending}
-              title="Keep this conversation in the ERP, on the supplier's timeline"
-              className="rounded-xl bg-card/80"
-              onClick={() =>
-                file.mutate({
-                  threadId: message.thread_id,
-                  companyId: message.company_id,
-                })
-              }
-            >
-              {file.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Archive className="size-3.5" />
-              )}
-              File to ERP
-            </Button>
-          )}
-          {message.in_erp && (
-            <Badge variant="success" className="rounded-full px-2.5 py-1 text-[10px]">
-              <CheckCircle2 className="mr-1 size-3" />
-              Tracked in the ERP
-            </Badge>
-          )}
-          {message.company_name && (
-            <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[10px]">
-              <Building2 className="mr-1 size-3" />
-              {message.company_name}
-            </Badge>
-          )}
-          <span className="ml-auto rounded-full bg-card/70 px-2.5 py-1 text-[11px] font-bold text-muted-foreground ring-1 ring-inset ring-border/60">
-            {messages.length > 0 &&
-              `${messages.length} message${messages.length === 1 ? "" : "s"}`}
-          </span>
-        </div>
-      </header>
+        ) : (
+          <Badge variant="success" className="rounded-full px-2.5 py-1 text-[10px]">
+            <CheckCircle2 className="mr-1 size-3" />
+            Tracked in the ERP
+          </Badge>
+        )}
+        {message.company_name && (
+          <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[10px]">
+            <Building2 className="mr-1 size-3" />
+            {message.company_name}
+          </Badge>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close (Esc)"
+          className="ml-auto shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8 pt-5 sm:px-7">
+        <div className="flex items-start gap-3">
+          <h2 className="min-w-0 flex-1 text-xl font-bold leading-snug tracking-tight text-foreground">
+            {subject}
+          </h2>
+          {items.length > 1 && (
+            <span className="mt-1 shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-bold tabular-nums text-muted-foreground">
+              {items.length}
+            </span>
+          )}
+        </div>
+
         {thread.isPending && (
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <div className="mt-6 flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
-            Loading conversation…
+            Loading message…
           </div>
         )}
 
         {thread.isError && (
-          <p className="text-sm font-medium text-destructive">
+          <p className="mt-6 text-sm font-medium text-destructive">
             {isMailboxReauthError(thread.error)
               ? "The Gmail connection has expired. Reconnect it in Settings → Supplier Mail."
-              : "Could not open this conversation."}
+              : "Could not open this message."}
           </p>
         )}
 
-        {/* Newest first, same as the sourcing thread view: what the reader came
-            for is the latest message, not a scroll through their own sent mail
-            to reach it.
-
-            Three values have to agree for the marker dots to sit on the rail,
-            so they are kept on the Tailwind scale and stated together: rail at
-            `left-3` (12px, centre 12.5), card at `ml-8` (32px), dot at
-            `-left-6` (−24px, centre 13px). Half a pixel apart, which is
-            invisible. They were 21px apart before, which was not — every dot
-            floated off the line and out into the panel's padding. */}
-        {messages.length > 0 && (
-          <div className="relative space-y-3 before:absolute before:bottom-6 before:left-3 before:top-6 before:w-px before:bg-border/80">
-            {messages.map((item, index) => (
-              <MessageBubble
+        {items.length > 0 && (
+          <div className="mt-4 divide-y divide-border/70">
+            {items.map((item) => (
+              <ThreadMessage
                 key={item.message_id}
                 item={item}
-                isLatest={index === 0}
+                open={isOpen(item.message_id)}
+                onToggle={() => toggle(item.message_id)}
+                onReply={() =>
+                  onReply({
+                    ...replyTarget(),
+                    to: item.from_address ?? replyTarget().to,
+                  })
+                }
+                onPickReply={(body) =>
+                  onReply({
+                    ...replyTarget(body),
+                    to: item.from_address ?? replyTarget().to,
+                  })
+                }
                 companyId={thread.data?.company_id ?? null}
                 companyName={thread.data?.company_name ?? null}
                 sourcingRequestId={thread.data?.sourcing_request_id ?? null}
@@ -984,20 +966,39 @@ function ThreadPanel({
             ))}
           </div>
         )}
+
+        {thread.data && items.length === 0 && (
+          <p className="mt-6 text-sm font-medium text-muted-foreground">
+            This thread has no received messages — only mail you sent. See
+            Email → Sent.
+          </p>
+        )}
+
       </div>
     </div>
   );
 }
 
-function MessageBubble({
+type ThreadItem = NonNullable<
+  ReturnType<typeof useInboxThread>["data"]
+>["messages"][number];
+
+function ThreadMessage({
   item,
-  isLatest,
+  open,
+  onToggle,
+  onReply,
+  onPickReply,
   companyId,
   companyName,
   sourcingRequestId,
 }: {
-  item: NonNullable<ReturnType<typeof useInboxThread>["data"]>["messages"][number];
-  isLatest: boolean;
+  item: ThreadItem;
+  open: boolean;
+  onToggle: () => void;
+  onReply: () => void;
+  /** A suggested reply was picked for this message. */
+  onPickReply: (body: string) => void;
   /** The sender's company, when the inbox matched one. Passed down so "Add to
    *  Documents" can pre-select it instead of asking for something the thread
    *  already knows. */
@@ -1024,47 +1025,72 @@ function MessageBubble({
   const { reply, quoted } = splitQuotedReply(item.body);
   const files = item.attachments.filter((a) => !a.is_inline);
   const outbound = item.direction === "outbound";
-  const who = outbound ? "You" : item.from_name || item.from_address || "Sender";
+  const name = outbound ? "You" : item.from_name || item.from_address || "Sender";
+  const recipients = item.to_addresses.join(", ");
 
   return (
-    <article
-      className={cn(
-        "relative ml-8 rounded-2xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md",
-        outbound
-          ? "border-primary/25 bg-primary/[0.045]"
-          : "border-border/80",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute -left-6 top-5 flex size-2.5 rounded-full ring-4 ring-secondary/[0.18]",
-          outbound ? "bg-tile-blue" : "bg-tile-green",
-        )}
-      />
-      <div className="flex items-center gap-2.5">
-        <Avatar name={who} address={item.from_address} small />
+    <article className="py-4 first:pt-2">
+      {/* Header — the whole row toggles, as in Gmail. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
+        className="flex cursor-pointer items-start gap-3"
+      >
+        <Avatar name={name} address={item.from_address} large />
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <p className="truncate text-xs font-extrabold text-foreground">{who}</p>
-            {isLatest && (
-              <span className="rounded-full bg-primary/[0.1] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-primary">
-                Latest
-              </span>
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <p className="truncate text-sm font-bold text-foreground">{name}</p>
+            {open && item.from_address && (
+              <p className="truncate text-xs font-medium text-muted-foreground">
+                &lt;{item.from_address}&gt;
+              </p>
             )}
           </div>
-          {!outbound && item.from_name && item.from_address && (
-            <p className="truncate text-[11px] font-medium text-muted-foreground">
-              {item.from_address}
+          {open ? (
+            <p className="truncate text-xs font-medium text-muted-foreground">
+              to {recipients || "me"}
+            </p>
+          ) : (
+            <p className="truncate text-xs font-normal text-muted-foreground">
+              {firstLine(reply) || "(no text content)"}
             </p>
           )}
         </div>
-        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-muted-foreground">
-          {formatWhen(item.occurred_at)}
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {!open && files.length > 0 && (
+            <Paperclip className="size-3 text-muted-foreground" />
+          )}
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+            {formatWhen(item.occurred_at)}
+          </span>
+          {open && (
+            <button
+              type="button"
+              title="Reply to this message"
+              onClick={(event) => {
+                event.stopPropagation();
+                onReply();
+              }}
+              className="ml-1 inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Reply className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      <p className="mt-3 whitespace-pre-wrap text-[13px] leading-6 text-foreground/90">
+      {open && (
+        <div className="mt-3 sm:pl-[3.75rem]">
+      <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
         {reply || "(no text content)"}
       </p>
 
@@ -1074,7 +1100,7 @@ function MessageBubble({
         <div className="mt-2">
           <button
             type="button"
-            onClick={() => setShowQuoted((open) => !open)}
+            onClick={() => setShowQuoted((isShown) => !isShown)}
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <ChevronDown
@@ -1187,6 +1213,12 @@ function MessageBubble({
         </div>
       )}
 
+      <AssistPanel
+        threadId={item.thread_id}
+        messageId={item.message_id}
+        onPick={onPickReply}
+      />
+
       {previewing && (
         <FilePreview
           title={previewing.filename}
@@ -1223,37 +1255,229 @@ function MessageBubble({
           onClose={() => setSaving(null)}
         />
       )}
+        </div>
+      )}
     </article>
   );
 }
 
+/**
+ * "AI Summary" and "Suggested replies" for ONE received message — every reply
+ * in a thread gets its own. One button fills both, from one request. Picking a
+ * reply opens the compose window with it prefilled; it is never sent without
+ * the buyer pressing Send. Where the text comes from is the backend's business
+ * (`core/mail_assist.py`), so swapping in another model changes nothing here.
+ */
+function AssistPanel({
+  threadId,
+  messageId,
+  onPick,
+}: {
+  threadId: string;
+  messageId: string;
+  onPick: (body: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const alreadyGenerated = Boolean(
+    queryClient.getQueryData(keys.mailbox.inboxAssist(threadId, messageId)),
+  );
+  const [requested, setRequested] = useState(alreadyGenerated);
+  const assist = useInboxAssist(threadId, messageId, requested);
+  const loading = requested && assist.isFetching && !assist.data;
+  const errorText =
+    assist.error instanceof ApiError
+      ? assist.error.message
+      : assist.error
+        ? "The AI summary could not be generated."
+        : null;
+
+  const generate = (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => (assist.isError ? assist.refetch() : setRequested(true))}
+      className="bg-card"
+    >
+      <Sparkles className="size-3.5" />
+      {assist.isError ? "Try again" : "Generate"}
+    </Button>
+  );
+
+  return (
+    <div className="mt-5 space-y-3">
+      <section className="overflow-hidden rounded-2xl border border-primary/15 bg-primary/[0.04]">
+        <header className="flex items-center gap-2 border-b border-primary/10 px-4 py-2.5">
+          <Sparkles className="size-4 text-primary" />
+          <h3 className="text-sm font-bold text-foreground">AI Summary</h3>
+          <div className="ml-auto">{!assist.data && !loading && generate}</div>
+        </header>
+        <div className="px-4 py-3">
+          {assist.data ? (
+            <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-foreground/90 marker:text-muted-foreground">
+              {assist.data.summary.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : loading ? (
+            <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Reading this email…
+            </p>
+          ) : errorText ? (
+            <p className="text-xs font-medium text-destructive">{errorText}</p>
+          ) : (
+            <p className="text-xs font-medium text-muted-foreground">
+              Summarise this email and draft replies to it. The text is sent to
+              the AI service only when you press Generate.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-primary/15 bg-primary/[0.04]">
+        <header className="flex items-center gap-2 border-b border-primary/10 px-4 py-2.5">
+          <MessageSquareReply className="size-4 text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Suggested replies</h3>
+        </header>
+        <div className="px-4 py-3">
+          {assist.data ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {assist.data.suggested_replies.map((suggestion) => (
+                <button
+                  key={suggestion.label + suggestion.body}
+                  type="button"
+                  title={suggestion.body}
+                  onClick={() => onPick(suggestion.body)}
+                  className="rounded-xl border border-primary/15 bg-card px-3 py-2.5 text-center text-[13px] font-semibold text-primary shadow-xs transition-colors hover:border-primary/40 hover:bg-primary/[0.06]"
+                >
+                  {suggestion.label}
+                </button>
+              ))}
+            </div>
+          ) : loading ? (
+            <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Drafting replies…
+            </p>
+          ) : (
+            <p className="text-xs font-medium text-muted-foreground">
+              Replies appear here with the summary. Picking one opens it in the
+              reply window to edit before sending.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function firstLine(text: string): string {
+  return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+}
+
 // --- Helpers ----------------------------------------------------------------
 
-/** A sender's initials on a colour derived from their address.
+/**
+ * A sender's picture, in a circle.
  *
- *  The colour is decorative only — the initials and the name carry the
- *  identity, so nothing here depends on telling two hues apart (the palette is
- *  not built for that, see the note on the tile tokens). */
+ * Gmail's API carries no profile photos, so the picture is found the way mail
+ * clients do it: the sender's Gravatar if they have one, otherwise their
+ * company's logo (skipped for gmail.com, qq.com and the like, where it would
+ * put the provider's logo on every person), otherwise initials on a colour
+ * derived from the address. Misses are remembered for the session so the list
+ * does not re-ask for every row on every render.
+ */
 function Avatar({
   name,
   address,
   small = false,
+  large = false,
   muted = false,
 }: {
   name: string;
   address?: string | null;
   small?: boolean;
+  large?: boolean;
   muted?: boolean;
 }) {
   const initials = initialsOf(name);
   const tone = AVATAR_TONES[hashOf(address || name) % AVATAR_TONES.length];
+  const normalized = address?.trim().toLowerCase() ?? "";
+  const [hash, setHash] = useState<string | null>(
+    () => gravatarHashes.get(normalized) ?? null,
+  );
+  const [, setMisses] = useState(0);
+
+  useEffect(() => {
+    if (!normalized || gravatarHashes.has(normalized)) return;
+    let cancelled = false;
+    sha256Hex(normalized).then((hex) => {
+      if (!hex) return;
+      gravatarHashes.set(normalized, hex);
+      if (!cancelled) setHash(hex);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalized]);
+
+  const domain = logoDomain(normalized);
+  const candidates = [
+    hash && {
+      src: `https://www.gravatar.com/avatar/${hash}?d=404&s=160`,
+      logo: false,
+    },
+    domain && {
+      src: `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=128`,
+      logo: true,
+    },
+  ].filter(
+    (c): c is { src: string; logo: boolean } =>
+      Boolean(c) && !failedImages.has((c as { src: string }).src),
+  );
+  const picture = candidates[0];
+  const miss = (src: string) => {
+    failedImages.add(src);
+    setMisses((n) => n + 1);
+  };
+
+  const sizing = small
+    ? "size-8 text-[11px]"
+    : large
+      ? "size-12 text-sm"
+      : "size-11 text-[13px]";
+
+  if (picture) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- remote avatar, not a local asset
+      <img
+        key={picture.src}
+        src={picture.src}
+        alt=""
+        aria-hidden
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => miss(picture.src)}
+        onLoad={(event) => {
+          // The logo service answers a miss with a 16px globe, not an error.
+          if (event.currentTarget.naturalWidth <= 16) miss(picture.src);
+        }}
+        className={cn(
+          "shrink-0 rounded-full shadow-sm ring-1 ring-border/70",
+          sizing,
+          picture.logo ? "bg-white object-contain p-1.5" : "object-cover",
+          muted && "opacity-90",
+        )}
+      />
+    );
+  }
 
   return (
     <span
       aria-hidden
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full font-bold uppercase",
-        small ? "size-7 text-[10px]" : "size-9 text-[11px]",
+        "flex shrink-0 items-center justify-center rounded-full font-bold uppercase shadow-sm ring-1 ring-black/5",
+        sizing,
         tone,
         muted && "opacity-85",
       )}
@@ -1261,6 +1485,36 @@ function Avatar({
       {initials}
     </span>
   );
+}
+
+const gravatarHashes = new Map<string, string>();
+const failedImages = new Set<string>();
+
+async function sha256Hex(value: string): Promise<string | null> {
+  try {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(value),
+    );
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null; // Not a secure context — initials it is.
+  }
+}
+
+/** The domain whose logo stands for a sender, or null for free-mail senders.
+ *  `mail.stripe.com` → `stripe.com`; `x.co.uk` is left whole. */
+function logoDomain(address: string): string | null {
+  const domain = address.split("@")[1];
+  if (!domain || FREEMAIL.has(domain)) return null;
+  const labels = domain.split(".");
+  const trimmed =
+    labels.length > 2 && labels[labels.length - 1].length > 2
+      ? labels.slice(-2).join(".")
+      : domain;
+  return FREEMAIL.has(trimmed) ? null : trimmed;
 }
 
 const AVATAR_TONES = [

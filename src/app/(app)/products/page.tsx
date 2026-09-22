@@ -19,8 +19,8 @@ export const metadata: Metadata = { title: "Products" };
  */
 export default function ProductsPage() {
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:gap-4 sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             Products
@@ -31,15 +31,16 @@ export default function ProductsPage() {
           </p>
         </div>
 
+        {/* On a phone the two actions share the row equally. */}
         <div className="flex shrink-0 items-center gap-2.5">
           <Link
             href="/imports"
-            className={cn(buttonVariants({ variant: "outline" }))}
+            className={cn(buttonVariants({ variant: "outline" }), "flex-1 sm:flex-none")}
           >
             <Upload strokeWidth={2.25} />
-            Import Products
+            Import<span className="hidden sm:inline"> Products</span>
           </Link>
-          <Link href="/products/new" className={cn(buttonVariants())}>
+          <Link href="/products/new" className={cn(buttonVariants(), "flex-1 sm:flex-none")}>
             <Plus strokeWidth={2.25} />
             Add Product
           </Link>

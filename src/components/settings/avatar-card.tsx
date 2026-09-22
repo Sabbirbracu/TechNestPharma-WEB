@@ -73,7 +73,7 @@ export function AvatarCard({ user }: { user: AuthUser | null }) {
           alt=""
           className="size-20 shrink-0 rounded-full object-cover ring-1 ring-inset ring-border/60"
         />
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={pickFile} disabled={busy}>
               {uploadAvatar.isPending ? (

@@ -21,7 +21,13 @@ export function CompanyExportButton() {
   return (
     <DropdownMenu
       trigger={(props) => (
-        <Button type="button" variant="outline" disabled={exporting} {...props}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={exporting}
+          className="w-full sm:w-44"
+          {...props}
+        >
           {exporting ? (
             <Loader2 className="animate-spin" strokeWidth={2.25} />
           ) : (

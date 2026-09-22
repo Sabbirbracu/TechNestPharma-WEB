@@ -99,6 +99,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
             cd ${{ secrets.DEPLOY_PATH }}
             docker compose pull web
             docker compose up -d web

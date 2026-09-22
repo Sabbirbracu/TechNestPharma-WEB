@@ -1,25 +1,16 @@
 import { Suspense } from "react";
-import type { Metadata } from "next";
-import { SourcingWorkspace } from "@/components/sourcing/sourcing-workspace";
-
-export const metadata: Metadata = { title: "Sourcing" };
+import { SourcingRedirect } from "@/components/supplier-enquiries/sourcing-redirect";
 
 /**
- * Supplier outreach (FR-SRC).
+ * The old Sourcing address (renamed Supplier Enquiries, 2026-09-17).
  *
- * The whole screen is one client component: the pipeline strip, the filters,
- * the list and the detail panel all read and write the same selection and
- * filter state, and splitting them would mean lifting that state into a
- * provider for no gain.
- *
- * The Suspense boundary is required because the workspace reads `?open=` with
- * `useSearchParams` — a notification links straight to the enquiry it is
- * about — which opts the tree into client-side rendering.
+ * Kept so bookmarks, notifications and emailed links still land: `?open=<line
+ * id>` resolves to the enquiry that line belongs to.
  */
 export default function SourcingPage() {
   return (
     <Suspense fallback={null}>
-      <SourcingWorkspace />
+      <SourcingRedirect />
     </Suspense>
   );
 }

@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Inter, Montserrat, Poppins } from "next/font/google";
+import {
+  Geist,
+  Geist_Mono,
+  Hind_Siliguri,
+  Inter,
+  Montserrat,
+  Poppins,
+} from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
@@ -33,6 +40,19 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
+// Bangla. Not a replacement for the Latin faces — it sits BEHIND them in every
+// font stack (see globals.css), so the browser draws English in Montserrat and
+// switches to this only for Bengali characters. Without it Bangla fell back to
+// whatever the OS had (Bangla Sangam on a Mac, Nirmala UI on Windows) and
+// looked different on every machine. Bengali subset only: the Latin glyphs
+// would never be used.
+const hindSiliguri = Hind_Siliguri({
+  variable: "--font-bangla",
+  weight: ["400", "500", "600", "700"],
+  subsets: ["bengali"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "TechNest Pharma",
@@ -51,7 +71,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${poppins.variable} ${montserrat.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${poppins.variable} ${montserrat.variable} ${hindSiliguri.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="bg-background text-foreground min-h-full">

@@ -88,8 +88,10 @@ export function SummaryBand({
   return (
     <section className="space-y-3">
       {/* Five cards, and the last one spans the gap at the two-column width so
-          the row never ends on a hole. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          the row never ends on a hole. On a phone the tender-number card spans
+          instead (it holds a list), and `dense` pulls Tender Type up beside
+          Tenders: two, one, two. */}
+      <div className="grid grid-flow-row-dense grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-5">
         <Tile
           label="Tenders"
           value={String(notice.tender_count)}
@@ -105,6 +107,7 @@ export function SummaryBand({
         />
 
         <Tile
+          className="col-span-2 sm:col-span-1"
           label="দরপত্র নং / Tender No"
           value={refs.value}
           hint={refs.hint}
@@ -390,7 +393,7 @@ function Tile({
           // and the cross-check callout both carry the full set.
           wrap && value.length > 10
             ? "line-clamp-2 break-words text-base"
-            : "truncate text-xl",
+            : "truncate text-lg sm:text-xl",
           interactive && "group-hover:text-primary",
         )}
       >
@@ -424,7 +427,7 @@ function Tile({
   );
 
   const shell = cn(
-    "group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card p-4 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
+    "group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card p-3.5 text-left shadow-sm sm:p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
     ring,
     className,
   );

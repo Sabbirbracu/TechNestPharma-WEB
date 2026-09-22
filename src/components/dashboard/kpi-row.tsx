@@ -91,12 +91,12 @@ export function KpiRow({
   isPending: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-5">
       {TILES.map((spec) =>
         isPending || !series ? (
           <div
             key={spec.key}
-            className="h-[142px] animate-pulse rounded-2xl border border-border/60 bg-card"
+            className="h-[126px] animate-pulse rounded-2xl border border-border/60 bg-card sm:h-[142px]"
           />
         ) : (
           <KpiTile
@@ -125,28 +125,30 @@ function KpiTile({
   return (
     <Link
       href={spec.href}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card pt-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card pt-3 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:pt-4"
     >
-      <div className="flex items-start gap-3 px-4">
+      {/* Two tiles fit a 375px screen, so everything inside steps down a size
+          there: the chip, the figure and the sparkline. */}
+      <div className="flex items-start gap-2.5 px-3 sm:gap-3 sm:px-4">
         <span
           className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105",
+            "flex size-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105 sm:size-11",
             spec.chip,
           )}
         >
-          <Icon className="size-[22px]" strokeWidth={2} />
+          <Icon className="size-5 sm:size-[22px]" strokeWidth={2} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-muted-foreground">
+          <span className="block truncate text-xs font-medium text-muted-foreground sm:text-[13px]">
             {spec.label}
           </span>
-          <span className="mt-0.5 block text-[26px] font-bold leading-8 tracking-tight tabular-nums text-foreground">
+          <span className="mt-0.5 block text-[22px] font-bold leading-7 tracking-tight tabular-nums text-foreground sm:text-[26px] sm:leading-8">
             {(entry?.end_value ?? 0).toLocaleString()}
           </span>
         </span>
       </div>
 
-      <div className="mt-2 px-4">
+      <div className="mt-1.5 px-3 sm:mt-2 sm:px-4">
         <Delta entry={entry} windowDays={windowDays} />
       </div>
 
@@ -154,7 +156,7 @@ function KpiTile({
         <Sparkline
           points={entry.points}
           gradientId={`spark-${spec.key}`}
-          className={cn("mt-2 h-10 w-full", spec.ink)}
+          className={cn("mt-2 h-8 w-full sm:h-10", spec.ink)}
         />
       )}
     </Link>

@@ -25,7 +25,7 @@ export default function CompaniesPage() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:shrink-0 sm:items-center">
           <NewCompanyButton />
           <CompanyExportButton />
         </div>

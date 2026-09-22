@@ -27,6 +27,7 @@ import {
   useTenders,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { shortReference } from "@/lib/tender-reference";
 import type { ShortlistMembership, TenderListItem } from "@/types/api";
 
 /**
@@ -414,7 +415,7 @@ function ShortlistPanel({
                   </span>
                   <span className="block truncate text-[10px] font-medium text-muted-foreground">
                     {[
-                      tender.reference_no,
+                      shortReference(tender.reference_no),
                       `${tender.item_count} item${tender.item_count === 1 ? "" : "s"}`,
                     ]
                       .filter(Boolean)

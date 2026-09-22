@@ -111,8 +111,9 @@ export function ActivityLogWorkspace() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-        <div className="w-48">
+      {/* Phone: a two-column grid — the two pickers, then From / To. */}
+      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-sm sm:flex sm:flex-wrap sm:items-center sm:p-4">
+        <div className="min-w-0 sm:w-48">
           <Select
             value={entityType}
             onChange={(event) => resetFilterAndPage(setEntityType, event.target.value)}
@@ -126,7 +127,7 @@ export function ActivityLogWorkspace() {
             ))}
           </Select>
         </div>
-        <div className="w-40">
+        <div className="min-w-0 sm:w-40">
           <Select
             value={action}
             onChange={(event) =>
@@ -142,22 +143,22 @@ export function ActivityLogWorkspace() {
             ))}
           </Select>
         </div>
-        <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold text-muted-foreground sm:flex-row sm:items-center sm:gap-2">
           From
           <Input
             type="date"
             value={since}
             onChange={(event) => resetFilterAndPage(setSince, event.target.value)}
-            className="h-9 w-40"
+            className="h-9 w-full min-w-0 sm:w-40"
           />
         </label>
-        <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold text-muted-foreground sm:flex-row sm:items-center sm:gap-2">
           To
           <Input
             type="date"
             value={until}
             onChange={(event) => resetFilterAndPage(setUntil, event.target.value)}
-            className="h-9 w-40"
+            className="h-9 w-full min-w-0 sm:w-40"
           />
         </label>
       </div>
@@ -184,10 +185,18 @@ export function ActivityLogWorkspace() {
         ) : (
           <div
             className={cn(
-              "overflow-x-auto transition-opacity duration-200",
+              "transition-opacity duration-200",
               isFetching && "pointer-events-none opacity-60",
             )}
           >
+            {/* Below lg the six columns don't fit: one card per entry. */}
+            <ul className="divide-y divide-border/50 lg:hidden">
+              {rows.map((row) => (
+                <LogCard key={row.id} row={row} />
+              ))}
+            </ul>
+
+            <div className="hidden overflow-x-auto lg:block">
             <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
               <colgroup>
                 <col className="w-[150px]" />
@@ -213,11 +222,12 @@ export function ActivityLogWorkspace() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
         {total > 0 && (
-          <div className="border-t border-border/60 px-4 py-4 sm:px-5">
+          <div className="border-t border-border/60 px-3 py-4 sm:px-5">
             <ResultsPagination
               page={data?.page ?? page}
               pageCount={data?.pages ?? 1}
@@ -240,6 +250,50 @@ export function ActivityLogWorkspace() {
   );
 }
 
+function ActionPill({ action }: { action: ActivityAction }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground">
+      <span className={cn("size-1.5 shrink-0 rounded-full", ACTION_DOT[action] ?? "bg-muted-foreground")} />
+      {action}
+    </span>
+  );
+}
+
+/** The phone / tablet counterpart of `LogRow`: action and entity lead, since
+ *  that is what someone scanning an audit trail reads first. */
+function LogCard({ row }: { row: AuditLogEntry }) {
+  const changes = formatChanges(row.changes);
+  return (
+    <li className="px-4 py-3">
+      <div className="flex items-center gap-2">
+        <ActionPill action={row.action} />
+        <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+          {row.entity_type.replaceAll("_", " ")}
+          {row.entity_id !== null && (
+            <span className="font-medium text-muted-foreground"> #{row.entity_id}</span>
+          )}
+        </span>
+      </div>
+      <p className="mt-1.5 text-xs font-medium text-muted-foreground">
+        <span className="font-semibold text-foreground">{row.user_name ?? "System"}</span>
+        {" · "}
+        {formatDateTime(row.occurred_at)}
+      </p>
+      {changes !== "—" && (
+        <p
+          className="mt-1.5 line-clamp-3 break-all rounded-lg bg-secondary/40 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground"
+          title={changes}
+        >
+          {changes}
+        </p>
+      )}
+      {row.ip && (
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/80">IP {row.ip}</p>
+      )}
+    </li>
+  );
+}
+
 function LogRow({ row }: { row: AuditLogEntry }) {
   return (
     <tr className="border-b border-border/40 transition-colors last:border-0 hover:bg-accent/25">
@@ -252,10 +306,7 @@ function LogRow({ row }: { row: AuditLogEntry }) {
         </span>
       </td>
       <td className="px-4 py-3">
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground">
-          <span className={cn("size-1.5 shrink-0 rounded-full", ACTION_DOT[row.action] ?? "bg-muted-foreground")} />
-          {row.action}
-        </span>
+        <ActionPill action={row.action} />
       </td>
       <td className="overflow-hidden px-4 py-3 text-xs font-medium text-foreground">
         {row.entity_type.replaceAll("_", " ")}

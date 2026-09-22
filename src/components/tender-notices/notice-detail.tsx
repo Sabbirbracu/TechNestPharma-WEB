@@ -6,8 +6,8 @@ import { useTenderNotice } from "@/lib/queries";
 import { Callout } from "./notice-callout";
 import { CrossCheckCallout } from "./notice-cross-check";
 import { ExtractionSummary } from "./notice-extraction-summary";
+import { NoticeGuidelines } from "./notice-guidelines";
 import { Header } from "./notice-header";
-import { isGuessedText } from "./notice-taxonomy";
 import { PanelTab } from "./notice-panel-tab";
 import { readinessOf } from "./notice-readiness";
 import { SourceDocument } from "./notice-source-document";
@@ -71,13 +71,7 @@ export function NoticeDetail({ noticeId }: { noticeId: number }) {
       {notice.extraction_error && (
         <Callout tone="error">{notice.extraction_error}</Callout>
       )}
-      {isGuessedText(notice.extraction_method) && (
-        <Callout tone="warning">
-          This notice was read by OCR, so every character is a guess rather than
-          a read. Check the tender numbers, dates and costs against the document
-          before confirming — a misread reference number is a lost bid.
-        </Callout>
-      )}
+      <NoticeGuidelines notice={notice} />
       {/* Sits directly under the OCR warning, because it is the partial
           answer to it: the site publishes the same tender numbers as text,
           so at least those can be verified rather than trusted. */}
@@ -96,10 +90,11 @@ export function NoticeDetail({ noticeId }: { noticeId: number }) {
         ref={panelRef}
         className="scroll-mt-4 overflow-hidden rounded-xl border border-border/60 bg-card"
       >
-        <div className="border-b border-border/60 px-4 py-3">
+        <div className="border-b border-border/60 px-3 py-3 sm:px-4">
+          {/* Full width on a phone, the three segments sharing it equally. */}
           <nav
             aria-label="Notice detail"
-            className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl bg-secondary/70 p-1 ring-1 ring-inset ring-border/50"
+            className="flex w-full max-w-full gap-1 overflow-x-auto rounded-xl bg-secondary/70 p-1 ring-1 ring-inset ring-border/50 sm:inline-flex sm:w-auto"
           >
             <PanelTab
               active={panel === "tenders"}
@@ -107,21 +102,21 @@ export function NoticeDetail({ noticeId }: { noticeId: number }) {
               icon={Table2}
               count={notice.tender_count}
             >
-              Tenders in this notice
+              Tenders<span className="hidden sm:inline"> in this notice</span>
             </PanelTab>
             <PanelTab
               active={panel === "document"}
               onClick={() => setPanel("document")}
               icon={FileText}
             >
-              Source Document
+              <span className="hidden sm:inline">Source </span>Document
             </PanelTab>
             <PanelTab
               active={panel === "summary"}
               onClick={() => setPanel("summary")}
               icon={Gauge}
             >
-              Extraction Summary
+              <span className="hidden sm:inline">Extraction </span>Summary
             </PanelTab>
           </nav>
         </div>

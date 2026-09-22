@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, Loader2, LogOut, Menu, Search, Settings, X } from "lucide-react";
+import { Bell, Loader2, LogOut, Menu, Settings, X } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { NotificationList } from "@/components/notifications/notification-list";
 import { useAuth } from "@/lib/auth";
@@ -112,18 +111,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Menu className="size-5" />
           </button>
-
-          {/* Enhanced search bar */}
-          <Link
-            href="/search"
-            className="group flex h-10 max-w-md flex-1 items-center gap-3 rounded-full border border-input/80 bg-secondary/50 px-4 text-sm text-muted-foreground shadow-inner ring-1 ring-transparent transition-all hover:border-ring/50 hover:bg-accent/60 hover:text-foreground hover:ring-ring/10"
-          >
-            <Search className="size-4 shrink-0 transition-transform group-hover:scale-110" strokeWidth={2} />
-            <span className="truncate font-medium">Search products by name or CAS…</span>
-            <kbd className="ml-auto hidden items-center gap-0.5 rounded-md border border-border/80 bg-card px-2 py-1 font-mono text-[10px] font-semibold text-muted-foreground shadow-xs ring-1 ring-border/20 sm:inline-flex">
-              ⌘K
-            </kbd>
-          </Link>
 
           {/* Premium action buttons */}
           <div className="ml-auto flex items-center gap-2">

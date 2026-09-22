@@ -191,7 +191,7 @@ function ListCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="flex h-full flex-col p-5 sm:p-6">
+    <Card className="flex h-full flex-col p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
           {title}
@@ -220,7 +220,9 @@ function ListCard({
             {emptyLabel}
           </p>
         ) : (
-          <ul className="-mx-2 divide-y divide-border/50">{children}</ul>
+          // No negative margin: at phone width it pushed the rows 8px past
+          // the card on each side and made the whole page scroll sideways.
+          <ul className="divide-y divide-border/50">{children}</ul>
         )}
       </div>
     </Card>

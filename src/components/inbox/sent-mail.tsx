@@ -19,7 +19,6 @@ import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ResultsPagination } from "@/components/search/results-pagination";
 import { downloadMailAttachment, useSentMail } from "@/lib/queries";
 import { useDebounced } from "@/lib/use-debounced";
 import { cn } from "@/lib/utils";
@@ -43,7 +42,6 @@ import type { SentMessage } from "@/types/api";
  * The trade-off, stated plainly: mail sent from Gmail directly is not here.
  * That is the point, not an omission.
  */
-const PAGE_SIZE = 20;
 
 export function SentMail({
   onReply,
@@ -52,27 +50,25 @@ export function SentMail({
 }) {
   const [draft, setDraft] = useState("");
   const [untrackedOnly, setUntrackedOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [selected, setSelected] = useState<SentMessage | null>(null);
   const search = useDebounced(draft.trim());
 
-  // Narrowing changes what page 1 means, so every control that narrows rewinds
-  // the pager with it rather than stranding the reader on an empty page.
+  // Narrowing starts a new list, so the open message is closed with it.
   function narrow(apply: () => void) {
     apply();
-    setPage(1);
     setSelected(null);
   }
 
   const query = useSentMail({
-    page,
-    size: pageSize,
     ...(search ? { q: search } : {}),
     ...(untrackedOnly ? { untracked: true } : {}),
   });
 
-  const messages = useMemo(() => query.data?.items ?? [], [query.data]);
+  const messages = useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? [],
+    [query.data],
+  );
+  const total = query.data?.pages[0]?.total ?? 0;
 
   return (
     <>
@@ -107,7 +103,7 @@ export function SentMail({
         </label>
       </div>
 
-      <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100vh-16rem)] lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+      <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100vh-14.5rem)] lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col border-border lg:border-r">
           {query.error ? (
             <div
@@ -149,22 +145,24 @@ export function SentMail({
             </ul>
           )}
 
-          {query.data && query.data.total > 0 && (
-            <div className="border-t border-border px-3 py-2">
-              <ResultsPagination
-                page={query.data.page}
-                pageCount={query.data.pages}
-                total={query.data.total}
-                pageSize={query.data.size}
-                itemLabel="sent"
-                onPageChange={(next) => {
-                  setPage(next);
-                  setSelected(null);
-                }}
-                onPageSizeChange={(size) =>
-                  narrow(() => setPageSize(size))
-                }
-              />
+          {messages.length > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2">
+              <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                {messages.length} of {total}
+              </span>
+              {query.hasNextPage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => query.fetchNextPage()}
+                  disabled={query.isFetchingNextPage}
+                >
+                  {query.isFetchingNextPage ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : null}
+                  Load more
+                </Button>
+              )}
             </div>
           )}
         </div>
