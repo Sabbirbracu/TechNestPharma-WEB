@@ -100,6 +100,10 @@ jobs:
           script: |
             set -e
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            # No bare `docker pull ${IMAGE}` here: github.repository keeps the
+            # owner/repo casing ("Sabbirbracu/TechNestPharma-WEB") and docker
+            # rejects an uppercase image name. `docker compose pull web` below
+            # pulls the same image from WEB_IMAGE in the server's .env.
             cd ${{ secrets.DEPLOY_PATH }}
             docker compose pull web
             docker compose up -d web
